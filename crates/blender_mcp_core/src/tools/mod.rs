@@ -347,25 +347,34 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "blender_manage_nodes".to_string(),
-            description: "Unified Node Graph DAG tool for Blender: inspect, query, build, and wire Shader Nodes (materials & world), Geometry Nodes (procedural modeling), and Compositor Nodes using declarative JSON without code.".to_string(),
+            description: "Unified Node Graph DAG tool for Blender: search, inspect, query, build, and wire Shader Nodes (materials, world, lights, line styles), Geometry Nodes (procedural modeling), and Compositor Nodes using declarative JSON without code.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "tree_type": {
                         "type": "string",
-                        "enum": ["MATERIAL", "GEOMETRY", "COMPOSITING", "WORLD"],
+                        "enum": ["MATERIAL", "GEOMETRY", "COMPOSITING", "WORLD", "LINESTYLE", "LIGHT", "NODEGROUP"],
                         "default": "MATERIAL",
-                        "description": "Which node tree to target: 'MATERIAL' (shader graph), 'GEOMETRY' (geometry nodes procedural modeling), 'COMPOSITING' (post-processing), or 'WORLD' (environment shader)."
+                        "description": "Which node tree to target: 'MATERIAL' (shader graph), 'GEOMETRY' (geometry nodes procedural modeling), 'COMPOSITING' (post-processing), 'WORLD' (environment shader), 'LINESTYLE' (freestyle line style), 'LIGHT' (lamp shader), or 'NODEGROUP' (direct node group by name)."
                     },
                     "target": {
                         "type": "string",
-                        "description": "Target name: object name (for MATERIAL/GEOMETRY) or material name directly."
+                        "description": "Target name: object name, material name, world name, linestyle name, or node group name."
                     },
                     "action": {
                         "type": "string",
-                        "enum": ["inspect", "query_type", "apply_dag", "remove_nodes", "disconnect"],
+                        "enum": ["search", "inspect", "query_type", "apply_dag", "remove_nodes", "disconnect"],
                         "default": "inspect",
-                        "description": "Action to perform: 'inspect' (read full node graph), 'query_type' (introspect input/output sockets of a node type), 'apply_dag' (declarative node creation and link wiring), 'remove_nodes', or 'disconnect'."
+                        "description": "Action to perform: 'search' (find node types across 550+ Blender nodes by keyword in English or Chinese), 'inspect' (read full node graph), 'query_type' (introspect input/output sockets and RNA properties of a node type), 'apply_dag' (declarative node creation and link wiring), 'remove_nodes', or 'disconnect'."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search keyword for 'search' action (e.g. 'noise', 'extrude', 'boolean', 'blur', '噪波', '挤出')."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 15,
+                        "description": "Maximum number of results to return for 'search' action."
                     },
                     "node_type": {
                         "type": "string",

@@ -169,17 +169,31 @@ def run_tests():
     assert cube_obj.data.materials[0].name == "MetallicBlue"
     print("   [OK] Created & assigned MetallicBlue material (metallic=0.9, roughness=0.1)")
 
-    # Test 7.1: blender_manage_nodes (query_type)
-    print("==> Test 7.1: blender_manage_nodes (query_type)")
+    # Test 7.1: blender_manage_nodes (query_type & search)
+    print("==> Test 7.1: blender_manage_nodes (query_type with RNA properties)")
     q_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
         "action": "query_type",
-        "node_type": "ShaderNodeTexNoise"
+        "node_type": "ShaderNodeMath"
     }))
     assert not q_res["result"]["isError"], f"Query type failed: {q_res}"
     q_data = json.loads(q_res["result"]["content"][0]["text"])
     assert q_data["status"] == "ok"
-    assert any(s["name"] == "Scale" for s in q_data["inputs"])
-    print("   [OK] Queried ShaderNodeTexNoise sockets successfully")
+    assert "properties" in q_data and "operation" in q_data["properties"]
+    assert "ADD" in q_data["properties"]["operation"]["enum_items"]
+    print("   [OK] Queried ShaderNodeMath sockets and operational properties successfully")
+
+    # Test 7.1b: blender_manage_nodes (search catalog across 550+ nodes)
+    print("==> Test 7.1b: blender_manage_nodes (search catalog)")
+    s_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "action": "search",
+        "query": "extrude",
+        "tree_type": "GEOMETRY"
+    }))
+    assert not s_res["result"]["isError"], f"Search failed: {s_res}"
+    s_data = json.loads(s_res["result"]["content"][0]["text"])
+    assert s_data["status"] == "ok"
+    assert any("ExtrudeMesh" in r["identifier"] for r in s_data["results"])
+    print(f"   [OK] Searched 'extrude' in GEOMETRY: matched {s_data['count']} nodes")
 
     # Test 7.2: blender_manage_nodes (apply_dag on MATERIAL)
     print("==> Test 7.2: blender_manage_nodes (apply_dag on MATERIAL)")
@@ -247,6 +261,27 @@ def run_tests():
     assert insp_geo_data["status"] == "ok"
     assert insp_geo_data["nodes_count"] >= 2
     print(f"   [OK] Inspected Geometry Nodes tree: {insp_geo_data['nodes_count']} nodes, {insp_geo_data['links_count']} links")
+
+    # Test 7.5: blender_manage_nodes (COMPOSITING & LINESTYLE trees)
+    print("==> Test 7.5: blender_manage_nodes (COMPOSITING & LINESTYLE trees)")
+    comp_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "tree_type": "COMPOSITING",
+        "action": "inspect"
+    }))
+    assert not comp_res["result"]["isError"], f"Compositing inspect failed: {comp_res}"
+    comp_data = json.loads(comp_res["result"]["content"][0]["text"])
+    assert comp_data["status"] == "ok"
+    print(f"   [OK] Compositing tree initialized & inspected: {comp_data['nodes_count']} nodes")
+
+    ls_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "tree_type": "LINESTYLE",
+        "target": "TestLineStyle",
+        "action": "inspect"
+    }))
+    assert not ls_res["result"]["isError"], f"LineStyle inspect failed: {ls_res}"
+    ls_data = json.loads(ls_res["result"]["content"][0]["text"])
+    assert ls_data["status"] == "ok"
+    print(f"   [OK] LineStyle tree initialized & inspected: {ls_data['nodes_count']} nodes")
 
     # Test 8: blender_setup_scene
     print("==> Test 8: blender_setup_scene")
