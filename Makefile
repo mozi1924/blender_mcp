@@ -3,7 +3,7 @@
 BLENDER ?= blender
 CARGO ?= cargo
 
-.PHONY: all build build-debug test test-adaptive extension clean run-blender
+.PHONY: all build build-debug test test-adaptive test-profiles extension clean run-blender
 
 all: build
 
@@ -30,10 +30,16 @@ test: build
 	$(BLENDER) -b --python tests/test_rust_mcp_integration.py
 	@echo "==> Running adaptive tool tests in headless Blender..."
 	$(BLENDER) -b --python tests/test_adaptive_tools.py
+	@echo "==> Running tool profile tests in headless Blender..."
+	$(BLENDER) -b --python tests/test_tool_profiles.py
 
 test-adaptive: build
 	@echo "==> Running adaptive tool tests in headless Blender..."
 	$(BLENDER) -b --python tests/test_adaptive_tools.py
+
+test-profiles: build
+	@echo "==> Running tool profile tests in headless Blender..."
+	$(BLENDER) -b --python tests/test_tool_profiles.py
 
 extension: build
 	@echo "==> Packaging Blender extension..."

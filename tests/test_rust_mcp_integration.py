@@ -399,7 +399,8 @@ def run_tests():
     print("==> Test 7.5: blender_manage_nodes (COMPOSITING & LINESTYLE trees)")
     comp_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
         "tree_type": "COMPOSITING",
-        "action": "inspect"
+        "action": "inspect",
+        "ensure": True
     }))
     assert not comp_res["result"]["isError"], f"Compositing inspect failed: {comp_res}"
     comp_data = json.loads(comp_res["result"]["content"][0]["text"])
@@ -409,7 +410,8 @@ def run_tests():
     ls_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
         "tree_type": "LINESTYLE",
         "target": "TestLineStyle",
-        "action": "inspect"
+        "action": "inspect",
+        "ensure": True
     }))
     assert not ls_res["result"]["isError"], f"LineStyle inspect failed: {ls_res}"
     ls_data = json.loads(ls_res["result"]["content"][0]["text"])

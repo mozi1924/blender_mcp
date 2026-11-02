@@ -104,7 +104,7 @@ def main():
         assert "operator" in primitive["inputSchema"]["properties"]
         # No stale hardcoded primitive enum survives in the live schema.
         assert "enum" not in primitive["inputSchema"]["properties"]["primitive_type"]
-        assert len(tools) == 12, sorted(tools)
+        assert len(tools) == 13, sorted(tools)
         engine_schema = tools["blender_setup_scene"]["inputSchema"]["properties"]["render_engine"]
         # The schema now carries the live engine enum, not a stale hardcoded one.
         assert engine_schema.get("enum"), engine_schema
@@ -262,6 +262,115 @@ def main():
         text = error_payload(bad_primitive)
         assert "radii" in text and "created" in text
         print("[OK] adaptive primitive reports unresolved parameters")
+
+        # 10a. Read-only node inspection must not create a Geometry Nodes modifier.
+        before_nodes_mods = [m.name for m in bpy.data.objects["AdaptiveTorus"].modifiers if m.type == "NODES"]
+        read_only = payload(
+            tool_call(
+                "blender_manage_nodes",
+                {"tree_type": "GEOMETRY", "target": "AdaptiveTorus", "action": "inspect"},
+            )
+        )
+        after_nodes_mods = [m.name for m in bpy.data.objects["AdaptiveTorus"].modifiers if m.type == "NODES"]
+        assert before_nodes_mods == after_nodes_mods == []
+        assert read_only["nodes_count"] == 0 and "note" in read_only
+        print("[OK] node inspect is read-only (no implicit modifier/tree creation)")
+
+        # 10b. Generic RNA setter (consolidation path).
+        set_loc = payload(
+            tool_call(
+                "blender_set",
+                {"target": "object:AdaptiveTorus", "path": "location", "value": [1.0, 2.0, 3.0]},
+            )
+        )
+        assert set_loc["applied"]["location"] == [1.0, 2.0, 3.0]
+        set_rot = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "object:AdaptiveTorus",
+                    "path": "rotation_euler",
+                    "value": [90.0, 0.0, 0.0],
+                    "unit": "degrees",
+                },
+            )
+        )
+        assert abs(bpy.data.objects["AdaptiveTorus"].rotation_euler[0] - 1.5707963) < 1e-4
+        set_render = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "scene.render",
+                    "properties": {"resolution_x": 512, "resolution_y": 384},
+                },
+            )
+        )
+        assert set_render["applied"]["resolution_x"] == 512
+        print("[OK] blender_set: object transform + render settings")
+
+        mat = payload(
+            tool_call(
+                "blender_manage_material",
+                {"object_name": "AdaptiveTorus", "material_name": "SetMat", "base_color": "#112233"},
+            )
+        )
+        set_mat = bpy.data.materials["SetMat"]
+        bsdf_name = next(
+            node.name for node in set_mat.node_tree.nodes if node.type == "BSDF_PRINCIPLED"
+        )
+        set_color = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "material:SetMat",
+                    "path": f"node_tree.nodes[{bsdf_name}].inputs[Base Color].default_value",
+                    "value": "#00FF00",
+                },
+            )
+        )
+        assert set_color["status"] == "ok"
+        color = set_mat.node_tree.nodes[bsdf_name].inputs["Base Color"].default_value
+        assert abs(color[1] - 1.0) < 1e-4
+        print("[OK] blender_set: material node socket color via RNA path")
+
+        mod = payload(
+            tool_call(
+                "blender_manage_modifier",
+                {"object_name": "AdaptiveTorus", "action": "add", "modifier_type": "SUBSURF"},
+            )
+        )
+        set_mod = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "modifier:AdaptiveTorus/Subsurf",
+                    "properties": {"levels": 2, "render_levels": 3},
+                },
+            )
+        )
+        assert set_mod["applied"]["levels"] == 2
+        print("[OK] blender_set: modifier properties via path")
+
+        bad_set = tool_call(
+            "blender_set",
+            {"target": "object:AdaptiveTorus", "path": "locaton", "value": [0, 0, 0]},
+        )
+        assert "Did you mean" in error_payload(bad_set)
+        print("[OK] blender_set: unknown path suggestions")
+
+        # 10c. look_at convenience replaces setup_scene's camera aiming.
+        cam_data = bpy.data.cameras.new("LookCamData")
+        cam_obj = bpy.data.objects.new("LookCam", cam_data)
+        bpy.context.scene.collection.objects.link(cam_obj)
+        cam_obj.location = (5.0, -5.0, 5.0)
+        aim = payload(
+            tool_call(
+                "blender_transform_object",
+                {"name": "LookCam", "look_at": "AdaptiveTorus"},
+            )
+        )
+        assert any(abs(value) > 1e-4 for value in cam_obj.rotation_euler), cam_obj.rotation_euler
+        print("[OK] transform look_at covers camera aiming")
 
         # 11. Setup scene uses the live engine enum.
         setup = payload(

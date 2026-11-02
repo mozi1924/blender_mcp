@@ -364,6 +364,11 @@ def coerce_value(prop, value):
     if t in ("INT", "FLOAT"):
         cast = int if t == "INT" else float
         if getattr(prop, "is_array", False):
+            if t == "FLOAT" and getattr(prop, "subtype", "") == "COLOR":
+                if isinstance(value, str) and value.startswith("#"):
+                    rgba = hex_to_rgba(value)
+                    length = int(getattr(prop, "array_length", 0) or 0)
+                    value = rgba[:length] if length else rgba
             length = int(getattr(prop, "array_length", 0) or 0)
             if isinstance(value, (int, float)):
                 value = [value] * (length or 1)
@@ -801,6 +806,168 @@ def _build_context_override(context):
 
 
 # ---------------------------------------------------------------------------
+# Path resolution (used by blender_set and other generic tools)
+# ---------------------------------------------------------------------------
+
+
+def parse_path(path):
+    """Parse ``a.b[Key].c[0]`` into ``["a", "b", "Key", "c", "0"]``."""
+    tokens = []
+    buf = []
+    i = 0
+    path = str(path or "")
+    while i < len(path):
+        char = path[i]
+        if char == ".":
+            if buf:
+                tokens.append("".join(buf))
+                buf = []
+        elif char == "[":
+            if buf:
+                tokens.append("".join(buf))
+                buf = []
+            end = path.find("]", i)
+            if end < 0:
+                raise ValueError(f"Unclosed '[' in path: {path}")
+            key = path[i + 1 : end].strip()
+            if len(key) >= 2 and key[0] in ("'", '"') and key[-1] == key[0]:
+                key = key[1:-1]
+            tokens.append(key)
+            i = end
+        else:
+            buf.append(char)
+        i += 1
+    if buf:
+        tokens.append("".join(buf))
+    return tokens
+
+
+def _path_child(current, token):
+    if current is None:
+        raise KeyError(f"Cannot resolve '{token}': parent is null")
+    try:
+        if hasattr(current, token):
+            return getattr(current, token)
+    except Exception:
+        pass
+    if isinstance(current, dict) and token in current:
+        return current[token]
+    try:
+        if str(token).lstrip("-").isdigit():
+            return current[int(token)]
+    except Exception:
+        pass
+    try:
+        if hasattr(current, "get"):
+            value = current.get(token)
+            if value is not None:
+                return value
+        return current[token]
+    except Exception as ex:
+        raise KeyError(f"Cannot resolve path segment '{token}': {ex}")
+
+
+def resolve_path(root, path):
+    """Resolve a full relative path from ``root``."""
+    current = root
+    for token in parse_path(path):
+        current = _path_child(current, token)
+    return current
+
+
+def resolve_path_with_leaf(root, path):
+    """Resolve the parent of the final path segment; returns ``(parent, leaf)``."""
+    tokens = parse_path(path)
+    if not tokens:
+        return root, None
+    current = root
+    for token in tokens[:-1]:
+        current = _path_child(current, token)
+    return current, tokens[-1]
+
+
+def resolve_target(target):
+    """Resolve a root target expression.
+
+    Examples:
+      scene, render, world, view_layer
+      object:RustCube
+      object_data:RustCube
+      modifier:RustCube/Subsurf
+      material:MetallicBlue
+      node:MetallicBlue/Principled BSDF
+      nodetree:MyGroup
+      light:KeyLight, camera:Camera, collection:Props
+      mesh:Name ... any bpy.data collection
+    """
+    text = str(target or "").strip()
+    key = text.lower()
+    if key in ("", "scene"):
+        return bpy.context.scene
+    if key in ("render", "scene.render"):
+        return bpy.context.scene.render
+    if key in ("world", "scene.world"):
+        return bpy.context.scene.world
+    if key in ("view_layer", "viewlayer"):
+        return bpy.context.view_layer
+
+    if ":" in text:
+        kind, name = text.split(":", 1)
+        nk = norm(kind)
+
+        if nk in ("object", "obj"):
+            return resolve_id("Object", name)
+        if nk in ("objectdata", "objdata", "data"):
+            return resolve_id("Object", name).data
+        if nk in ("modifier", "mod"):
+            obj_name, _, mod_name = name.partition("/")
+            if not mod_name:
+                raise ValueError("modifier target must be 'Object/ModifierName'")
+            obj = resolve_id("Object", obj_name)
+            modifier = obj.modifiers.get(mod_name)
+            if modifier is None:
+                raise KeyError(f"Modifier '{mod_name}' not found on '{obj_name}'")
+            return modifier
+        if nk in ("node",):
+            owner_name, _, node_name = name.partition("/")
+            if not node_name:
+                raise ValueError("node target must be 'MaterialOrNodeGroup/NodeName'")
+            owner = bpy.data.materials.get(owner_name) or bpy.data.node_groups.get(owner_name)
+            if owner is None:
+                raise KeyError(f"Material/NodeGroup '{owner_name}' not found")
+            tree = getattr(owner, "node_tree", owner)
+            node = tree.nodes.get(node_name)
+            if node is None:
+                raise KeyError(f"Node '{node_name}' not found in '{owner_name}'")
+            return node
+        if nk in ("nodetree", "nodegroup"):
+            return resolve_id("NodeTree", name)
+
+        for fixed_type, collection_name in id_collections().items():
+            if nk in (
+                norm(collection_name),
+                norm(fixed_type),
+                norm(collection_name.rstrip("s")),
+                norm(fixed_type.rstrip("s")),
+            ):
+                return resolve_id(fixed_type, name)
+
+        raise KeyError(
+            f"Unknown target kind '{kind}'. Use scene, render, world, object:NAME, "
+            "object_data:NAME, modifier:OBJECT/MODIFIER, material:NAME, "
+            "node:OWNER/NODE, nodetree:NAME, or a bpy.data ID type."
+        )
+
+    if text in bpy.data.objects:
+        return bpy.data.objects[text]
+    for fixed_type, collection_name in id_collections().items():
+        collection = getattr(bpy.data, collection_name, None)
+        if collection is not None and text in collection:
+            return collection[text]
+    raise KeyError(f"Target '{target}' not found")
+
+
+# ---------------------------------------------------------------------------
 # Shared material / node socket helpers (replaces per-tool copies)
 # ---------------------------------------------------------------------------
 
@@ -928,6 +1095,10 @@ __all__ = [
     "operator_property_table",
     "run_operator",
     "hex_to_rgba",
+    "parse_path",
+    "resolve_path",
+    "resolve_path_with_leaf",
+    "resolve_target",
     "find_socket",
     "set_socket_value",
     "apply_sockets",

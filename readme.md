@@ -2,7 +2,7 @@
 
 A high-performance, embedded MCP (Model Context Protocol) server for Blender 5.x, written in **Rust** with **PyO3** bindings and an RNA-driven Python runtime.
 
-Instead of running an external Python virtual environment with fragile multi-process socket bridges, **Blender MCP (Rust)** consolidates everything into a **single native Blender extension**. It provides an embedded Tokio async runtime with Streamable HTTP & SSE MCP services, alongside 12 agent-centric tools.
+Instead of running an external Python virtual environment with fragile multi-process socket bridges, **Blender MCP (Rust)** consolidates everything into a **single native Blender extension**. It provides an embedded Tokio async runtime with Streamable HTTP & SSE MCP services, alongside 13 tools: an 11-tool core adaptive surface plus 2 deprecated compatibility wrappers.
 
 The tool layer is **adaptive**: instead of hardcoding Blender's parameters and enum values in Rust, tools read them from Blender's RNA at runtime. A new modifier, node type, operator parameter or render engine therefore works without updating this project.
 
@@ -14,21 +14,34 @@ The tool layer is **adaptive**: instead of hardcoding Blender's parameters and e
 - **Thread-Safe Command Dispatch**: Tokio handles high-concurrency async HTTP/SSE requests in a background OS thread; tasks are dispatched safely to Blender's main thread via lock-free channels with GIL synchronization.
 - **Streamable HTTP & SSE Protocol**: Conforms to standard Model Context Protocol (JSON-RPC 2.0). Connect directly via `http://localhost:8765/mcp`.
 - **Adaptive RNA-driven Tools**: `blender_describe` and `blender_run_operator` expose Blender's live RNA (operator parameters, enum identifiers, ranges, defaults, node-tree validity). New Blender features are available immediately; stale hardcoded enums are gone.
-- **Transport-only Rust**: Rust owns the Tokio/HTTP/SSE server, the main-thread bridge, panic isolation and MCP envelope conversion. All 12 tool handlers and their schemas live in the persistent Python runtime; adding a tool needs zero Rust changes.
+- **Transport-only Rust**: Rust owns the Tokio/HTTP/SSE server, the main-thread bridge, panic isolation and MCP envelope conversion. All 13 tool handlers and their schemas live in the persistent Python runtime; adding a tool needs zero Rust changes.
 - **Shared Python Runtime**: `addon/blender_mcp/blender_mcp_runtime` is imported once and cached in `sys.modules`. Catalogs, RNA metadata and schema builders persist across requests instead of Python source strings being recompiled per call.
-- **12 Tools**:
+- **13 Tools (11 core + 2 compatibility)**:
   1. `blender_describe`: Adaptive introspection — operator/struct/property schemas, modifier and node catalogs, valid node tree types, render engines, primitive kinds, ID types.
-  2. `blender_run_operator`: Run any `bpy.ops` operator with RNA validation, enum coercion, pointer-by-name resolution, poll diagnostics and explicit unknown-parameter errors.
-  3. `blender_inspect`: Unified scene hierarchy, deep object info, file status, and dynamic datablock counts.
-  4. `blender_capture`: Viewport / camera rendering returning Base64 PNG image content for vision LLMs.
-  5. `blender_create_primitive`: Operator-driven primitive creation (including `grid`, `monkey`, NURBS and add-on primitives) with every parameter validated from the creation operator's RNA.
-  6. `blender_transform_object`: Translation, rotation (degrees), scaling, origin manipulation and apply-transform, adapting to Euler/Quaternion/Axis-Angle modes.
-  7. `blender_manage_modifier`: Live modifier catalog, RNA introspection, add/configure/apply/remove with generic pointer resolution.
-  8. `blender_manage_material`: Principled BSDF / OpenPBR socket editing using socket RNA, multi-slot assignment and inspection.
-  9. `blender_manage_nodes`: Shader, Geometry, Compositor, World, LineStyle and NodeGroup DAGs; node validity is probed per tree instead of guessed from name prefixes.
-  10. `blender_setup_scene`: Camera look-at, lights, live render-engine enum, RNA-discovered sample properties and world background sockets.
+  2. `blender_inspect`: Unified scene hierarchy, deep object info, file status, and dynamic datablock counts.
+  3. `blender_run_operator`: Run any `bpy.ops` operator with RNA validation, enum coercion, pointer-by-name resolution, poll diagnostics and explicit unknown-parameter errors.
+  4. `blender_set`: Generic RNA property writer with a path resolver (`object:RustCube.location`, `modifier:RustCube/Subsurf.levels`, `material:M.node_tree.nodes[Principled BSDF].inputs[Base Color].default_value`, `scene.render`). Accepts hex colors, enum display names, datablock names and degree-based rotations.
+  5. `blender_create_primitive`: semantic primitive creation (operator-driven parameters, collection linking, text body, light data).
+  6. `blender_transform_object`: translation, degree-based rotation, scaling, relative mode, apply-transform, origin manipulation and `look_at` aiming.
+  7. `blender_manage_material`: material slot management plus Principled/OpenPBR socket editing.
+  8. `blender_manage_nodes`: Shader, Geometry, Compositor, World, LineStyle and NodeGroup DAGs; node validity is probed per tree instead of guessed from name prefixes.
+  9. `blender_manage_modifier`: Live modifier catalog, RNA introspection, add/configure/apply/remove with generic pointer resolution.
+  10. `blender_capture`: Viewport / camera rendering returning Base64 PNG image content for vision LLMs.
   11. `blender_execute_script`: Python execution with automatic Undo, timing and stdout/stderr capture.
-  12. `blender_undo`: One-click undo.
+
+  Deprecated compatibility wrappers (still callable, hidden from the `core` profile):
+
+  12. `blender_setup_scene` → `blender_transform_object` (look_at) + `blender_set` + `blender_run_operator`.
+  13. `blender_undo` → `blender_run_operator` (`ed.undo`).
+
+### Tool profiles
+
+- `core` (recommended): the 11 tools above.
+- `full` (add-on default for backward compatibility): all 13 tools, including deprecated wrappers.
+
+Select the profile in the add-on preferences (**Tool Profile**), or set
+`BLENDER_MCP_TOOL_PROFILE=core|full` before starting Blender. Hidden tools are
+still callable by explicit name; the profile only controls `tools/list`.
 
 ### Architecture
 
@@ -44,7 +57,7 @@ Python (blender_mcp_runtime, imported once)
   ├── catalogs.py         live operators/modifiers/nodes/engines/ID types
   ├── registry.py         tool registration + schema materialization
   ├── schemas.py          migrated tool schemas with live enum patching
-  └── tools/*.py          12 tool handlers
+  └── tools/*.py          13 tool handlers (11 core + 2 deprecated)
 ```
 
 `blender_describe` reads the same RNA kernel, so agents can discover parameters
@@ -68,8 +81,9 @@ make build
 # Run both integration suites in headless Blender
 make test
 
-# Run only the adaptive-tool suite
+# Run only the adaptive-tool / profile suites
 make test-adaptive
+make test-profiles
 
 # Package Blender extension zip into dist/
 make extension

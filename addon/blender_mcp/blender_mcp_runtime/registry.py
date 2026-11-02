@@ -10,17 +10,48 @@ catalog (``tools/list``) and dispatches by name.
 from __future__ import annotations
 
 import json
+import os
 import traceback
 
 _REGISTRY = {}
+_VALID_PROFILES = ("core", "full")
+_PROFILE = os.environ.get("BLENDER_MCP_TOOL_PROFILE", "full").strip().lower()
+if _PROFILE not in _VALID_PROFILES:
+    _PROFILE = "full"
 
 
-def register(name, handler, description, input_schema, annotations=None):
+def set_profile(name):
+    """Select the advertised tool surface. Explicit tools/call still works."""
+    global _PROFILE
+    profile = str(name or "full").strip().lower()
+    if profile not in _VALID_PROFILES:
+        raise ValueError(f"Unknown tool profile '{name}'. Valid: {list(_VALID_PROFILES)}")
+    _PROFILE = profile
+    return _PROFILE
+
+
+def get_profile():
+    return _PROFILE
+
+
+def register(
+    name,
+    handler,
+    description,
+    input_schema,
+    annotations=None,
+    profiles=("core", "full"),
+    deprecated=False,
+    replaced_by=None,
+):
     _REGISTRY[name] = {
         "name": name,
         "description": description,
         "inputSchema": input_schema,
         "annotations": annotations or {},
+        "profiles": tuple(profiles),
+        "deprecated": bool(deprecated),
+        "replaced_by": tuple(replaced_by or ()),
         "handler": handler,
     }
     return _REGISTRY[name]
@@ -34,17 +65,37 @@ def _materialize(spec):
     schema = spec["inputSchema"]
     if callable(schema):
         schema = schema()
+
+    description = spec["description"]
+    annotations = dict(spec["annotations"])
+    if spec["deprecated"]:
+        replacement = ", ".join(spec["replaced_by"])
+        description += f" [DEPRECATED - use {replacement}]" if replacement else " [DEPRECATED]"
+        annotations.setdefault("deprecated", True)
+        if spec["replaced_by"]:
+            annotations.setdefault("replacedBy", list(spec["replaced_by"]))
+
     return {
         "name": spec["name"],
-        "description": spec["description"],
+        "description": description,
         "inputSchema": schema,
-        "annotations": spec["annotations"],
+        "annotations": annotations,
+        "deprecated": spec["deprecated"],
+        "replacedBy": list(spec["replaced_by"]),
+        "profiles": list(spec["profiles"]),
     }
 
 
-def list_tools():
-    """Return MCP ``Tool`` definitions (the Rust side consumes these)."""
-    return [_materialize(spec) for spec in _REGISTRY.values()]
+def list_tools(profile=None):
+    """Return MCP ``Tool`` definitions for the selected profile."""
+    selected = str(profile or _PROFILE).strip().lower()
+    if selected not in _VALID_PROFILES:
+        selected = "full"
+    return [
+        _materialize(spec)
+        for spec in _REGISTRY.values()
+        if selected == "full" or selected in spec["profiles"]
+    ]
 
 
 def list_tools_json():
@@ -98,6 +149,8 @@ def dispatch_json(name, args_json):
 __all__ = [
     "register",
     "get",
+    "set_profile",
+    "get_profile",
     "list_tools",
     "list_tools_json",
     "dispatch",

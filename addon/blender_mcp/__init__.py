@@ -19,7 +19,7 @@ bl_info = {
 import sys
 import os
 import bpy
-from bpy.props import StringProperty, IntProperty, BoolProperty, FloatProperty
+from bpy.props import StringProperty, IntProperty, BoolProperty, FloatProperty, EnumProperty
 
 # Ensure the addon directory is on sys.path so blender_mcp_core.so can be imported
 _addon_dir = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +32,10 @@ try:
 except ImportError as ex:
     _CORE_AVAILABLE = False
     _IMPORT_ERROR = str(ex)
+
+_DEFAULT_TOOL_PROFILE = os.environ.get("BLENDER_MCP_TOOL_PROFILE", "FULL").upper()
+if _DEFAULT_TOOL_PROFILE not in ("CORE", "FULL"):
+    _DEFAULT_TOOL_PROFILE = "FULL"
 
 
 def _timer_callback():
@@ -69,6 +73,24 @@ class BLMCP_Preferences(bpy.types.AddonPreferences):
         name="Auto-start Server",
         default=True,
         description="Automatically start the MCP server when Blender loads",
+    )
+    tool_profile: EnumProperty(
+        name="Tool Profile",
+        items=[
+            (
+                "FULL",
+                "Full (13 tools)",
+                "Expose all tools, including two deprecated compatibility wrappers",
+            ),
+            (
+                "CORE",
+                "Core (11 tools)",
+                "Recommended surface: describe, inspect, run_operator, set, "
+                "create_primitive, transform, modifier, material, nodes, capture, script",
+            ),
+        ],
+        default=_DEFAULT_TOOL_PROFILE,
+        description="Tool surface advertised by tools/list. Explicit calls still work for hidden tools",
     )
     active_interval: FloatProperty(
         name="Active Poll Interval (s)",
@@ -108,6 +130,7 @@ class BLMCP_Preferences(bpy.types.AddonPreferences):
         col.prop(self, "host")
         col.prop(self, "port")
         col.prop(self, "autostart")
+        col.prop(self, "tool_profile")
         col.prop(self, "active_interval")
         col.prop(self, "idle_interval")
 
@@ -124,6 +147,14 @@ class BLMCP_OT_server_start(bpy.types.Operator):
 
         prefs = context.preferences.addons[__package__].preferences
         try:
+            blender_mcp_core.set_tool_profile(prefs.tool_profile)
+            if blender_mcp_core.is_running():
+                self.report(
+                    {"INFO"},
+                    f"Tool profile set to {prefs.tool_profile}; server already running",
+                )
+                return {"FINISHED"}
+
             blender_mcp_core.start_server(prefs.host, prefs.port)
             if not bpy.app.timers.is_registered(_timer_callback):
                 bpy.app.timers.register(_timer_callback, first_interval=prefs.active_interval, persistent=True)
@@ -180,7 +211,7 @@ class VIEW3D_PT_blender_mcp(bpy.types.Panel):
             box.operator("blmcp.server_start", text="Start Server", icon="PLAY")
 
         box2 = layout.box()
-        box2.label(text="Adaptive Tools: 12 Available", icon="TOOL_SETTINGS")
+        box2.label(text=f"Adaptive Tools: {prefs.tool_profile.title()} profile", icon="TOOL_SETTINGS")
         box2.label(text="Describe, Run Operator, Inspect,")
         box2.label(text="Primitives, Transform, Modifiers,")
         box2.label(text="Materials, Nodes, Setup, Capture,")

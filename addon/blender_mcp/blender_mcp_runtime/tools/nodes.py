@@ -112,7 +112,7 @@ def compute_dag_layout(nodes, links):
             positions[nid] = [r * 260.0 - 200.0, (idx - len(nids) / 2.0 + 0.5) * -180.0]
     return positions
 
-def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name=None):
+def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name=None, create=True):
     tree_type = tree_type.upper() if tree_type else "MATERIAL"
 
     # Global NodeGroup direct lookup
@@ -131,6 +131,8 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
                 mat = bpy.data.materials[material_name]
             elif obj.data.materials and obj.data.materials[0]:
                 mat = obj.data.materials[0]
+            elif not create:
+                return None, f"Object '{obj.name}' has no material (inspect is read-only; pass ensure=true to create one)"
             else:
                 mat_name = material_name or f"{obj.name}_Material"
                 mat = bpy.data.materials.new(name=mat_name)
@@ -140,18 +142,28 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
                 else:
                     obj.data.materials[0] = mat
         elif obj and obj.type == 'LIGHT':
-            if hasattr(obj.data, "use_nodes"):
-                obj.data.use_nodes = True
+            if getattr(obj.data, "node_tree", None) is None:
+                if not create:
+                    return None, f"Light '{obj.name}' has no node tree (pass ensure=true to create one)"
+                if hasattr(obj.data, "use_nodes"):
+                    obj.data.use_nodes = True
             return obj.data.node_tree, f"Light Shader Tree on '{obj.name}'"
         elif target_name and target_name in bpy.data.materials:
             mat = bpy.data.materials[target_name]
         elif material_name and material_name in bpy.data.materials:
             mat = bpy.data.materials[material_name]
+        elif not create:
+            return None, (
+                f"Material '{material_name or target_name or ''}' not found "
+                "(inspect is read-only; pass ensure=true to create one)"
+            )
         else:
             mat = bpy.data.materials.new(name=material_name or target_name or "NewMaterial")
             mat.use_nodes = True
 
-        if not mat.use_nodes:
+        if getattr(mat, "node_tree", None) is None:
+            if not create:
+                return None, f"Material '{mat.name}' has no node tree (pass ensure=true to create one)"
             mat.use_nodes = True
         return mat.node_tree, f"Material '{mat.name}'"
 
@@ -164,11 +176,16 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             light_data = bpy.data.lights[target_name]
         elif not obj and len(bpy.data.lights) > 0:
             light_data = bpy.data.lights[0]
+        elif not create:
+            return None, f"Light '{target_name or ''}' not found (pass ensure=true to create one)"
         else:
             light_data = bpy.data.lights.new(name=target_name or "Light", type='POINT')
 
-        if hasattr(light_data, "use_nodes"):
-            light_data.use_nodes = True
+        if getattr(light_data, "node_tree", None) is None:
+            if not create:
+                return None, f"Light '{light_data.name}' has no node tree (pass ensure=true to create one)"
+            if hasattr(light_data, "use_nodes"):
+                light_data.use_nodes = True
         return light_data.node_tree, f"Light '{light_data.name}' Shader Tree"
 
     elif tree_type == "GEOMETRY":
@@ -189,10 +206,20 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
                     break
 
         if not mod:
+            if not create:
+                return None, (
+                    f"Object '{obj.name}' has no Geometry Nodes modifier "
+                    "(inspect is read-only; pass ensure=true to create one)"
+                )
             mod_name = modifier_name or "GeometryNodes"
             mod = obj.modifiers.new(name=mod_name, type='NODES')
 
         if not mod.node_group:
+            if not create:
+                return None, (
+                    f"Geometry Nodes modifier '{mod.name}' has no node group "
+                    "(pass ensure=true to create one)"
+                )
             group_name = f"{obj.name}_GeoTree"
             group = bpy.data.node_groups.new(name=group_name, type='GeometryNodeTree')
             mod.node_group = group
@@ -209,15 +236,17 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             return bpy.data.node_groups[target_name], f"Compositor NodeGroup '{target_name}'"
 
         scene = bpy.context.scene
-        if hasattr(scene, "use_nodes"):
+        if create and hasattr(scene, "use_nodes"):
             scene.use_nodes = True
 
         if not hasattr(scene, "compositing_node_group") or scene.compositing_node_group is None:
+            if not create:
+                return None, "Scene has no compositing node group (pass ensure=true to create one)"
             group = bpy.data.node_groups.new("CompositingTree", type='CompositorNodeTree')
             scene.compositing_node_group = group
 
         group = scene.compositing_node_group
-        if len(group.nodes) == 0:
+        if create and len(group.nodes) == 0:
             if len(group.interface.items_tree) == 0:
                 group.interface.new_socket(name='Image', in_out='OUTPUT', socket_type='NodeSocketColor')
             rl = group.nodes.new("CompositorNodeRLayers")
@@ -241,10 +270,15 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             scene = bpy.context.scene
             world = scene.world
             if not world:
+                if not create:
+                    return None, "Scene has no world (pass ensure=true to create one)"
                 world = bpy.data.worlds.new("World")
                 scene.world = world
 
-        world.use_nodes = True
+        if getattr(world, "node_tree", None) is None:
+            if not create:
+                return None, f"World '{world.name}' has no node tree (pass ensure=true to create one)"
+            world.use_nodes = True
         return world.node_tree, f"World Shader Tree '{world.name}'"
 
     elif tree_type == "LINESTYLE":
@@ -254,9 +288,14 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
         elif len(bpy.data.linestyles) > 0:
             ls = bpy.data.linestyles[0]
         else:
+            if not create:
+                return None, f"LineStyle '{target_name or ''}' not found (pass ensure=true to create one)"
             ls = bpy.data.linestyles.new(name=target_name or "LineStyle")
 
-        ls.use_nodes = True
+        if getattr(ls, "node_tree", None) is None:
+            if not create:
+                return None, f"LineStyle '{ls.name}' has no node tree (pass ensure=true to create one)"
+            ls.use_nodes = True
         return ls.node_tree, f"LineStyle Shader Tree '{ls.name}'"
 
     return None, f"Unknown tree_type '{tree_type}'. Allowed: MATERIAL, GEOMETRY, COMPOSITING, WORLD, LINESTYLE, LIGHT, NODEGROUP"
@@ -354,8 +393,23 @@ def run_manage_nodes(args):
             bpy.data.node_groups.remove(temp_tree)
 
     # All other actions require target tree
-    tree, desc = get_or_create_tree(tree_type, target_name, mat_name, mod_name)
+    is_write = action in ("apply_dag", "build_graph", "remove_nodes", "disconnect")
+    ensure = bool(args.get("ensure", False))
+    tree, desc = get_or_create_tree(
+        tree_type, target_name, mat_name, mod_name, create=is_write or ensure
+    )
     if not tree:
+        if action == "inspect":
+            return {
+                "status": "ok",
+                "tree_type": tree_type.upper(),
+                "target": desc,
+                "nodes_count": 0,
+                "links_count": 0,
+                "nodes": [],
+                "links": [],
+                "note": desc,
+            }
         return {"status": "error", "message": desc}
 
     # Action 2: inspect

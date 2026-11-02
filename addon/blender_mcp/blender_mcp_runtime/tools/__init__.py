@@ -3,6 +3,7 @@
 """Runtime tool handlers.  Importing this module registers every tool."""
 
 from . import schemas  # noqa: F401
+from . import set_property  # noqa: F401
 from . import inspect  # noqa: F401
 from . import capture  # noqa: F401
 from . import transform  # noqa: F401
@@ -18,6 +19,7 @@ from . import primitive  # noqa: F401
 
 __all__ = [
     "schemas",
+    "set_property",
     "inspect",
     "capture",
     "transform",

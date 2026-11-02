@@ -75,6 +75,29 @@ def run_transform(args):
         else:
             obj.scale = s
 
+    # 3b. Look-at convenience (covers the camera aiming use case)
+    if args.get("look_at") is not None:
+        look_at = args["look_at"]
+        target_pos = None
+        if isinstance(look_at, str):
+            target_obj = bpy.data.objects.get(look_at)
+            if target_obj is not None:
+                target_pos = target_obj.matrix_world.translation
+        elif isinstance(look_at, (list, tuple)) and len(look_at) == 3:
+            target_pos = mathutils.Vector(look_at)
+
+        if target_pos is not None:
+            direction = mathutils.Vector(target_pos) - obj.matrix_world.translation
+            if direction.length > 0.0:
+                rot_quat = direction.to_track_quat('-Z', 'Y')
+                if obj.rotation_mode == 'QUATERNION':
+                    obj.rotation_quaternion = rot_quat
+                elif obj.rotation_mode == 'AXIS_ANGLE':
+                    axis, angle = rot_quat.to_axis_angle()
+                    obj.rotation_axis_angle = [angle, axis.x, axis.y, axis.z]
+                else:
+                    obj.rotation_euler = rot_quat.to_euler()
+
     # Ensure transforms are evaluated in dependency graph before origin/apply operations
     bpy.context.view_layer.update()
 

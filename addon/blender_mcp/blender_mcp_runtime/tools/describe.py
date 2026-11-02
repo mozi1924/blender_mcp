@@ -266,7 +266,13 @@ def describe(args):
         return catalogs.id_types()
 
     if target == "tool_schemas":
-        return {"status": "ok", "tools": registry.list_tools()}
+        profile = args.get("profile") or "full"
+        return {
+            "status": "ok",
+            "profile": profile,
+            "current_profile": registry.get_profile(),
+            "tools": registry.list_tools(profile=profile),
+        }
 
     raise KeyError(f"Unknown target '{target}'. Valid targets: {list(_TARGETS)}")
 
@@ -332,6 +338,11 @@ registry.register(
                 "minimum": 1,
                 "maximum": 500,
                 "description": "Maximum number of catalog entries to return.",
+            },
+            "profile": {
+                "type": "string",
+                "enum": ["core", "full"],
+                "description": "Profile filter for target 'tool_schemas' (default: full).",
             },
         },
     },

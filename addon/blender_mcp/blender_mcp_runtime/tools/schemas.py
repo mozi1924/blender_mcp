@@ -670,6 +670,33 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
 
 
 
+# Tool surface profiles. "core" is the orthogonal adaptive set; "full" also
+# exposes compatibility wrappers that duplicate blender_run_operator/blender_set.
+CORE = ("core", "full")
+FULL = ("full",)
+
+PROFILES = {
+    "blender_inspect": CORE,
+    "blender_capture": CORE,
+    "blender_manage_modifier": CORE,
+    "blender_manage_nodes": CORE,
+    "blender_manage_material": CORE,
+    "blender_transform_object": CORE,
+    "blender_execute_script": CORE,
+    "blender_setup_scene": FULL,
+    "blender_undo": FULL,
+}
+
+# Deprecated compatibility wrappers and their adaptive replacements.
+DEPRECATED = {
+    "blender_setup_scene": (
+        "blender_transform_object",
+        "blender_set",
+        "blender_run_operator",
+    ),
+    "blender_undo": ("blender_run_operator",),
+}
+
 # MCP safety hints per tool.
 ANNOTATIONS = {
     "blender_inspect": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
@@ -710,12 +737,34 @@ def _live(schema, name):
                 if extra not in values:
                     values.append(extra)
             props["origin_to"]["enum"] = values
+            props.setdefault(
+                "look_at",
+                {
+                    "description": (
+                        "Point the object at a world position [x, y, z] or an object name "
+                        "(camera/look-at convenience)."
+                    ),
+                },
+            )
 
         elif name == "blender_manage_modifier":
             from .. import catalogs
             props["modifier_type"]["enum"] = [
                 item["identifier"] for item in catalogs.modifier_types()["modifiers"]
             ]
+
+        elif name == "blender_manage_nodes":
+            props.setdefault(
+                "ensure",
+                {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "For 'inspect': create/initialize the tree if missing. "
+                        "Default false keeps inspection read-only."
+                    ),
+                },
+            )
 
         elif name == "blender_setup_scene":
             from .. import catalogs
@@ -746,4 +795,7 @@ def register_tool(register_fn, name, handler):
         description=TOOLS[name]["description"],
         input_schema=lambda: input_schema(name),
         annotations=ANNOTATIONS.get(name, {}),
+        profiles=PROFILES.get(name, CORE),
+        deprecated=name in DEPRECATED,
+        replaced_by=DEPRECATED.get(name),
     )
