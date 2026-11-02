@@ -66,11 +66,12 @@ fallback.
 # Build release cdylib and copy into addon/blender_mcp/
 make build
 
-# Run both integration suites in headless Blender
+# Run all integration suites (tools + transport) in headless Blender
 make test
 
-# Run only the adaptive-tool suite
+# Run only the adaptive-tool or transport suite
 make test-adaptive
+make test-transport
 
 # Package Blender extension zip into dist/
 make extension
@@ -99,7 +100,53 @@ Add the following to your MCP client configuration (Claude Desktop, Cursor, Anti
 }
 ```
 
-Or connect via Server-Sent Events (SSE) at `http://127.0.0.1:8765/sse`.
+If an **Auth Token** is configured in the add-on preferences:
+
+```json
+{
+  "mcpServers": {
+    "blender": {
+      "url": "http://127.0.0.1:8765/mcp",
+      "headers": {
+        "Authorization": "Bearer your-token"
+      }
+    }
+  }
+}
+```
+
+### Transport & sessions
+
+Streamable HTTP endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/mcp` | JSON-RPC request; JSON or SSE response |
+| `GET` | `/mcp` | Per-session server-sent event stream |
+| `DELETE` | `/mcp` | Terminate the session |
+| `GET` | `/sse` | Legacy HTTP+SSE `endpoint` event |
+| `POST` | `/messages?sessionId=...` | Legacy HTTP+SSE request tunnel |
+| `GET` | `/health` | Status, session count, auth/timeout info |
+
+Behavior:
+
+- `initialize` returns an `Mcp-Session-Id` header. Clients must send it on all
+  subsequent `/mcp` requests. Unknown/expired sessions return `404`; a missing
+  header returns `400`.
+- Sessions expire after 24 hours of inactivity. `DELETE /mcp` closes one
+  immediately.
+- `POST /mcp` returns JSON by default. Send `Accept: text/event-stream` (without
+  `application/json` or `*/*`) to receive a single SSE `message` event.
+- Notifications (for example `notifications/initialized`) return `202 Accepted`
+  with no body.
+- Batch JSON-RPC arrays are rejected with `400`; send one message per request.
+- Supported protocol versions: `2025-06-18`, `2025-03-26`, `2024-11-05`.
+- Browser CORS is restricted to loopback origins (`localhost`, `127.0.0.1`,
+  `::1`). Non-browser MCP clients are unaffected.
+- The **Auth Token** preference enables `Authorization: Bearer ...` checking.
+  When binding to a non-loopback host without a token, the server logs a warning.
+- The **Tool Timeout (s)** preference controls how long a request waits for
+  Blender's main thread (default 120s).
 
 ---
 

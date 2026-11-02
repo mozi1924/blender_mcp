@@ -1,4 +1,20 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+pub const LATEST_PROTOCOL_VERSION: &str = "2025-06-18";
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+pub const SESSION_HEADER: &str = "mcp-session-id";
+pub const PROTOCOL_HEADER: &str = "mcp-protocol-version";
+
+pub fn negotiate_protocol_version(params: Option<&Value>) -> String {
+    let requested = params
+        .and_then(|value| value.get("protocolVersion"))
+        .and_then(Value::as_str);
+    match requested {
+        Some(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => version.to_string(),
+        _ => LATEST_PROTOCOL_VERSION.to_string(),
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]

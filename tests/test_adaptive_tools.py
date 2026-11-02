@@ -28,15 +28,26 @@ PORT = 8800
 ENDPOINT = f"http://{HOST}:{PORT}/mcp"
 
 
+SESSION_ID = None
+AUTH_TOKEN = None
+
+
 def rpc_call(method, params=None, req_id=1):
+    global SESSION_ID
     payload = {"jsonrpc": "2.0", "id": req_id, "method": method}
     if params is not None:
         payload["params"] = params
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        ENDPOINT, data=data, headers={"Content-Type": "application/json"}
-    )
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if SESSION_ID:
+        headers["Mcp-Session-Id"] = SESSION_ID
+    if AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
+    req = urllib.request.Request(ENDPOINT, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as resp:
+        session_id = resp.headers.get("Mcp-Session-Id")
+        if session_id:
+            SESSION_ID = session_id
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -85,6 +96,8 @@ def main():
     print("Blender MCP adaptive tool integration tests")
     print("=" * 60)
 
+    global SESSION_ID
+    SESSION_ID = None
     blender_mcp_core.start_server(HOST, PORT)
     time.sleep(0.1)
     assert blender_mcp_core.is_running()

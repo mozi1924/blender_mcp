@@ -5,10 +5,20 @@ pub mod tools;
 use pyo3::prelude::*;
 
 #[pyfunction]
-#[pyo3(signature = (host = None, port = None))]
-fn start_server(py: Python<'_>, host: Option<&str>, port: Option<u16>) -> PyResult<bool> {
+#[pyo3(signature = (host = None, port = None, auth_token = None, tool_timeout = None))]
+fn start_server(
+    py: Python<'_>,
+    host: Option<&str>,
+    port: Option<u16>,
+    auth_token: Option<&str>,
+    tool_timeout: Option<u64>,
+) -> PyResult<bool> {
     let host = host.unwrap_or("127.0.0.1");
     let port = port.unwrap_or(8765);
+    let auth_token = auth_token
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty());
+    let tool_timeout = std::time::Duration::from_secs(tool_timeout.unwrap_or(120).max(5));
 
     // Build the live Python tool catalog before accepting requests.  This is
     // the single source of truth for tools/list and tools/call.
@@ -20,7 +30,7 @@ fn start_server(py: Python<'_>, host: Option<&str>, port: Option<u16>) -> PyResu
         Err(err) => eprintln!("[Blender MCP Rust] Failed to load tool catalog: {}", err),
     }
 
-    match server::start(host, port) {
+    match server::start(host, port, auth_token, tool_timeout) {
         Ok(()) => Ok(true),
         Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
     }

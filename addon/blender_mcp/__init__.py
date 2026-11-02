@@ -71,6 +71,19 @@ class BLMCP_Preferences(bpy.types.AddonPreferences):
         default=True,
         description="Automatically start the MCP server when Blender loads",
     )
+    auth_token: StringProperty(
+        name="Auth Token",
+        default="",
+        subtype="PASSWORD",
+        description="Optional bearer token required by HTTP requests (recommended for non-loopback hosts)",
+    )
+    tool_timeout: IntProperty(
+        name="Tool Timeout (s)",
+        default=120,
+        min=5,
+        max=3600,
+        description="Maximum time a tool call may wait for Blender's main thread",
+    )
     active_interval: FloatProperty(
         name="Active Poll Interval (s)",
         default=0.005,
@@ -109,6 +122,8 @@ class BLMCP_Preferences(bpy.types.AddonPreferences):
         col.prop(self, "host")
         col.prop(self, "port")
         col.prop(self, "autostart")
+        col.prop(self, "auth_token")
+        col.prop(self, "tool_timeout")
         col.prop(self, "active_interval")
         col.prop(self, "idle_interval")
 
@@ -129,7 +144,9 @@ class BLMCP_OT_server_start(bpy.types.Operator):
                 self.report({"INFO"}, "Server is already running")
                 return {"FINISHED"}
 
-            blender_mcp_core.start_server(prefs.host, prefs.port)
+            blender_mcp_core.start_server(
+                prefs.host, prefs.port, prefs.auth_token, prefs.tool_timeout
+            )
             if not bpy.app.timers.is_registered(_timer_callback):
                 bpy.app.timers.register(_timer_callback, first_interval=prefs.active_interval, persistent=True)
             self.report({"INFO"}, f"Blender MCP started on http://{prefs.host}:{prefs.port}/mcp")

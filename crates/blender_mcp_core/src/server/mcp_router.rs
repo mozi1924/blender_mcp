@@ -7,13 +7,20 @@ use std::time::Duration;
 
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+#[derive(Clone)]
+pub struct RpcContext {
+    pub protocol_version: String,
+    pub session_id: Option<String>,
+    pub tool_timeout: Duration,
+}
+
+pub async fn handle_rpc_request(req: JsonRpcRequest, ctx: &RpcContext) -> Option<JsonRpcResponse> {
     let id = req.id.clone();
 
     match req.method.as_str() {
         "initialize" => {
             let res = json!({
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": ctx.protocol_version,
                 "capabilities": {
                     "tools": {
                         "listChanged": false
@@ -28,8 +35,11 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
             Some(JsonRpcResponse::success(id, res))
         }
 
-        "notifications/initialized" => {
-            // Notifications do not receive responses
+        "notifications/initialized" | "notifications/cancelled" => {
+            // Notifications do not receive responses.  Cancellation is
+            // acknowledged but cannot abort a Python call already running on
+            // Blender's main thread; it only stops queued work when the bridge
+            // is extended with request ids.
             None
         }
 
@@ -90,8 +100,8 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
                 Err(err) => return Some(JsonRpcResponse::error(id, -32000, err)),
             };
 
-            // Await tool execution on Blender's main thread (timeout 120s for long renders)
-            match tokio::time::timeout(Duration::from_secs(120), rx).await {
+            // Await tool execution on Blender's main thread.
+            match tokio::time::timeout(ctx.tool_timeout, rx).await {
                 Ok(Ok(tool_resp)) => {
                     let res_val = serde_json::to_value(&tool_resp).unwrap_or_else(|_| {
                         json!({
@@ -109,7 +119,10 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
                 Err(_) => Some(JsonRpcResponse::error(
                     id,
                     -32000,
-                    "Tool execution timed out waiting for Blender main thread (120s)",
+                    format!(
+                        "Tool execution timed out waiting for Blender main thread ({}s)",
+                        ctx.tool_timeout.as_secs()
+                    ),
                 )),
             }
         }

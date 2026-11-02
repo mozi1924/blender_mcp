@@ -1,11 +1,14 @@
 pub mod http;
 pub mod mcp_router;
 pub mod protocol;
+pub mod session;
 
 use once_cell::sync::Lazy;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 use tokio::sync::oneshot;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
@@ -15,9 +18,31 @@ pub fn is_running() -> bool {
     RUNNING.load(Ordering::SeqCst)
 }
 
-pub fn start(host: &str, port: u16) -> Result<(), String> {
+pub fn start(
+    host: &str,
+    port: u16,
+    auth_token: Option<String>,
+    tool_timeout: Duration,
+) -> Result<(), String> {
     if is_running() {
         return Err("Server is already running".to_string());
+    }
+
+    let token_required = auth_token
+        .as_deref()
+        .map(|token| !token.trim().is_empty())
+        .unwrap_or(false);
+    let host_is_loopback = host == "localhost"
+        || host
+            .parse::<IpAddr>()
+            .map(|address| address.is_loopback())
+            .unwrap_or(false);
+    if !host_is_loopback && !token_required {
+        eprintln!(
+            "[Blender MCP Rust] WARNING: binding to non-loopback host '{}' without an auth token. \
+             Anyone who can reach this port can execute Blender operations.",
+            host
+        );
     }
 
     let addr_str = format!("{}:{}", host, port);
@@ -47,7 +72,7 @@ pub fn start(host: &str, port: u16) -> Result<(), String> {
             };
 
             rt.block_on(async move {
-                let app = http::create_router();
+                let app = http::create_router(auth_token, tool_timeout);
                 let listener = match tokio::net::TcpListener::bind(&addr_str).await {
                     Ok(l) => l,
                     Err(err) => {

@@ -21,7 +21,12 @@ HOST = "127.0.0.1"
 PORT = 8799
 ENDPOINT = f"http://{HOST}:{PORT}/mcp"
 
+SESSION_ID = None
+AUTH_TOKEN = None
+
+
 def rpc_call(method, params=None, req_id=1):
+    global SESSION_ID
     payload = {
         "jsonrpc": "2.0",
         "id": req_id,
@@ -30,8 +35,16 @@ def rpc_call(method, params=None, req_id=1):
     if params is not None:
         payload["params"] = params
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(ENDPOINT, data=data, headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if SESSION_ID:
+        headers["Mcp-Session-Id"] = SESSION_ID
+    if AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
+    req = urllib.request.Request(ENDPOINT, data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as resp:
+        session_id = resp.headers.get("Mcp-Session-Id")
+        if session_id:
+            SESSION_ID = session_id
         return json.loads(resp.read().decode("utf-8"))
 
 def tool_call(name, arguments, req_id=1):
@@ -50,6 +63,9 @@ def run_tests():
     print("=" * 60)
     print("Starting Blender MCP (Rust) Automated Integration Test Suite")
     print("=" * 60)
+
+    global SESSION_ID
+    SESSION_ID = None
 
     # 1. Start Server
     print("==> Starting server...")
