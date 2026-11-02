@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use crate::bridge::channel::ToolCallResponse;
 use crate::tools::helper::call_python_tool;
 use pyo3::prelude::*;
@@ -19,6 +22,9 @@ import bpy
 import io
 import sys
 import time
+import math
+import mathutils
+from mathutils import Vector, Matrix, Euler, Quaternion, Color
 import traceback
 import json
 
@@ -37,7 +43,22 @@ def run_script(args):
     old_stdout = sys.stdout
     old_stderr = sys.stderr
 
-    local_vars = {"bpy": bpy}
+    # Pre-inject high-frequency Blender mathematical & context utilities
+    local_vars = {
+        "bpy": bpy,
+        "C": bpy.context,
+        "D": bpy.data,
+        "math": math,
+        "mathutils": mathutils,
+        "Vector": Vector,
+        "Matrix": Matrix,
+        "Euler": Euler,
+        "Quaternion": Quaternion,
+        "Color": Color,
+        "radians": math.radians,
+        "degrees": math.degrees,
+        "pi": math.pi,
+    }
     start_time = time.perf_counter()
 
     try:
@@ -101,6 +122,6 @@ def run_script(args):
                 ToolCallResponse::text(json_str)
             }
         }
-        Err(e) => ToolCallResponse::error(format!("Python error executing script: {}", e)),
+        Err(e) => ToolCallResponse::error(format!("Python error during script execution: {}", e)),
     }
 }

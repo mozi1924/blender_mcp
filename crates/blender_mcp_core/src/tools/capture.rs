@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use crate::bridge::channel::ToolCallResponse;
 use crate::tools::helper::call_python_tool;
 use pyo3::prelude::*;
@@ -11,6 +14,9 @@ import base64
 
 def run_capture(args):
     view = args.get("view", "camera").lower()
+    shading_type = args.get("shading_type")
+    film_transparent = args.get("film_transparent")
+    camera_name = args.get("camera")
     return_image = args.get("return_image", True)
     custom_out = args.get("output_path")
     res = args.get("resolution", [800, 600])
@@ -20,6 +26,8 @@ def run_capture(args):
     orig_ry = scene.render.resolution_y
     orig_pct = scene.render.resolution_percentage
     orig_fp = scene.render.filepath
+    orig_film = scene.render.film_transparent
+    orig_cam = scene.camera
 
     tmp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     tmp_path = tmp_file.name
@@ -31,12 +39,42 @@ def run_capture(args):
         scene.render.resolution_percentage = 100
         scene.render.filepath = tmp_path
 
+        if film_transparent is not None:
+            scene.render.film_transparent = bool(film_transparent)
+
+        if camera_name:
+            cam_obj = bpy.data.objects.get(camera_name)
+            if cam_obj and cam_obj.type == 'CAMERA':
+                scene.camera = cam_obj
+
         # Perform render or viewport capture
-        if view == "camera" or bpy.app.background:
+        if bpy.app.background:
+            # Background / headless mode always uses standard render engine
             bpy.ops.render.render(write_still=True)
+        elif view == "viewport":
+            # Interactive 3D viewport capture with context override
+            area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'), None) if bpy.context.screen else None
+            if area:
+                region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+                space = area.spaces.active if area.spaces else None
+                orig_shading = None
+                if space and hasattr(space, "shading") and shading_type:
+                    orig_shading = space.shading.type
+                    try:
+                        space.shading.type = shading_type.upper()
+                    except Exception:
+                        pass
+                try:
+                    with bpy.context.temp_override(window=bpy.context.window, area=area, region=region):
+                        bpy.ops.render.opengl(write_still=True, view_context=True)
+                finally:
+                    if space and orig_shading:
+                        space.shading.type = orig_shading
+            else:
+                bpy.ops.render.opengl(write_still=True, view_context=False)
         else:
-            # Interactive viewport capture
-            bpy.ops.render.opengl(write_still=True, view_context=False)
+            # Standard camera render
+            bpy.ops.render.render(write_still=True)
 
         if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
             return {"status": "error", "message": "Render failed to produce output image"}
@@ -57,7 +95,9 @@ def run_capture(args):
             "base64": b64_data,
             "filepath": target_path,
             "resolution": [scene.render.resolution_x, scene.render.resolution_y],
-            "view": view
+            "view": view,
+            "camera": scene.camera.name if scene.camera else None,
+            "film_transparent": scene.render.film_transparent
         }
     except Exception as ex:
         import traceback
@@ -67,6 +107,8 @@ def run_capture(args):
         scene.render.resolution_y = orig_ry
         scene.render.resolution_percentage = orig_pct
         scene.render.filepath = orig_fp
+        scene.render.film_transparent = orig_film
+        scene.camera = orig_cam
         if return_image and not custom_out and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)

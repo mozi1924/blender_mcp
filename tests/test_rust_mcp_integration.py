@@ -430,9 +430,10 @@ def run_tests():
     print(f"   [OK] Configured camera look_at, SunLight, {bpy.context.scene.render.engine}, and 640x480 resolution")
 
     # Test 9: blender_capture
-    print("==> Test 9: blender_capture (render to Base64 image)")
+    print("==> Test 9: blender_capture (render to Base64 image with film_transparent)")
     cap_res = run_rpc_with_main_loop(lambda: tool_call("blender_capture", {
         "view": "camera",
+        "film_transparent": True,
         "resolution": [320, 240],
         "return_image": True
     }))
@@ -441,15 +442,25 @@ def run_tests():
     img_content = [c for c in contents if c.get("type") == "image"]
     assert len(img_content) > 0, f"Expected image content in response: {cap_res}"
     assert len(img_content[0]["data"]) > 100, "Base64 image data should not be empty!"
-    print(f"   [OK] Captured rendered frame: {len(img_content[0]['data'])} Base64 characters")
+    print(f"   [OK] Captured rendered frame: {len(img_content[0]['data'])} Base64 characters (film_transparent=True)")
 
-    # Test 10: blender_execute_script (with auto undo)
+    # Test 10: blender_execute_script (with pre-injected mathutils, math, C, D)
     print("==> Test 10: blender_execute_script")
     script_code = """
-import bpy
-# Calculate volume approximation
-result = {"cube_loc": list(bpy.data.objects['RustCube'].location)}
-print("Hello from procedural script!")
+# Test pre-injected symbols: Vector, Matrix, radians, C, D without imports
+v1 = Vector((1.0, 2.0, 3.0))
+v2 = Vector((4.0, 5.0, 6.0))
+dot_prod = v1.dot(v2)
+rad = radians(180.0)
+m = Matrix.Identity(3)
+
+result = {
+    "cube_loc": list(D.objects['RustCube'].location),
+    "dot_product": dot_prod,
+    "pi_approx": round(rad, 4),
+    "scene_name": C.scene.name
+}
+print(f"Pre-injected test: dot={dot_prod}, pi={round(rad, 4)}")
 """
     exec_res = run_rpc_with_main_loop(lambda: tool_call("blender_execute_script", {
         "code": script_code
@@ -457,10 +468,13 @@ print("Hello from procedural script!")
     assert not exec_res["result"]["isError"], f"Script exec failed: {exec_res}"
     exec_data = json.loads(exec_res["result"]["content"][0]["text"])
     assert exec_data["status"] == "ok"
-    assert "Hello from procedural script!" in exec_data["stdout"]
+    assert "Pre-injected test" in exec_data["stdout"]
+    assert exec_data["result"]["dot_product"] == 32.0
+    assert exec_data["result"]["pi_approx"] == 3.1416
+    assert exec_data["result"]["scene_name"] == bpy.context.scene.name
     assert len(exec_data["result"]["cube_loc"]) == 3
     assert abs(exec_data["result"]["cube_loc"][0] - 5.0) < 0.01
-    print(f"   [OK] Script executed successfully in {exec_data['duration_ms']} ms with captured stdout")
+    print(f"   [OK] Script executed successfully with pre-injected Vector, Matrix, radians, C, D in {exec_data['duration_ms']} ms")
 
     # Test 11: blender_undo
     print("==> Test 11: blender_undo")

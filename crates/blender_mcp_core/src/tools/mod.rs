@@ -59,7 +59,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "blender_capture".to_string(),
-            description: "Render or take a snapshot of the current 3D viewport or camera view. Directly returns Base64 PNG image content for instant visual feedback, or saves to output_path.".to_string(),
+            description: "Render or take a snapshot of the current 3D viewport or camera view. Supports transparent film (alpha PNG), shading mode selection, custom camera targeting, and directly returns Base64 PNG image content for vision LLMs.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -67,7 +67,20 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                         "type": "string",
                         "enum": ["camera", "viewport"],
                         "default": "camera",
-                        "description": "Which view to render: 'camera' (active scene camera) or 'viewport' (interactive OpenGL viewport)."
+                        "description": "Which view to render: 'camera' (active scene camera) or 'viewport' (interactive 3D viewport angle)."
+                    },
+                    "shading_type": {
+                        "type": "string",
+                        "enum": ["SOLID", "WIREFRAME", "MATERIAL", "RENDERED"],
+                        "description": "Viewport shading mode to use when view is 'viewport'."
+                    },
+                    "film_transparent": {
+                        "type": "boolean",
+                        "description": "Whether to render with transparent background (useful for sprites, asset cutouts, and product renders)."
+                    },
+                    "camera": {
+                        "type": "string",
+                        "description": "Optional specific camera object name to render from when view is 'camera'."
                     },
                     "resolution": {
                         "type": "array",
@@ -387,14 +400,14 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "blender_execute_script".to_string(),
-            description: "Execute arbitrary Python code in Blender's main thread. Automatically wraps execution in an Undo step, captures stdout/stderr, and returns result.".to_string(),
+            description: "Execute arbitrary Python code in Blender's main thread with pre-injected utilities (bpy, context as C, data as D, mathutils Vector, Matrix, Euler, Quaternion, Color, radians, degrees, pi). Automatically wraps execution in an Undo step, captures stdout/stderr, and returns result.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "required": ["code"],
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python code to execute via bpy. Assign to 'result' to return structured data."
+                        "description": "Python code to execute. Pre-injected: bpy, C, D, math, mathutils, Vector, Matrix, Euler, Quaternion, Color, radians, degrees, pi. Assign to 'result' to return structured data."
                     },
                     "auto_undo": {
                         "type": "boolean",
