@@ -113,7 +113,7 @@ def main():
         expected_tools = {
             "blender_describe", "blender_inspect", "blender_run_operator",
             "blender_set", "blender_manage_modifier", "blender_manage_nodes",
-            "blender_capture", "blender_execute_script",
+            "blender_capture", "blender_execute_script", "blender_manage_hierarchy",
         }
         assert set(tools) == expected_tools, sorted(tools)
         run_op = tools["blender_run_operator"]["inputSchema"]["properties"]
@@ -125,9 +125,13 @@ def main():
             tools["blender_manage_modifier"]["inputSchema"]["properties"]["modifier_type"].get("enum", [])
         ) > 50
         assert "MESH" in tools["blender_inspect"]["inputSchema"]["properties"]["object_type"]["enum"]
+        hier_props = tools["blender_manage_hierarchy"]["inputSchema"]["properties"]
+        assert "OBJECT" in hier_props["parent_type"]["enum"]
+        assert "COLOR_01" in hier_props["color_tag"]["enum"]
         assert tools["blender_describe"]["annotations"]["readOnlyHint"] is True
         assert tools["blender_inspect"]["annotations"]["readOnlyHint"] is True
         assert tools["blender_set"]["annotations"]["destructiveHint"] is True
+        assert tools["blender_manage_hierarchy"]["annotations"]["destructiveHint"] is True
         print(f"[OK] tools/list exposes {len(tools)} consolidated tools")
 
         # 2. Operator RNA introspection.
@@ -457,6 +461,123 @@ def main():
         assert bpy.context.scene.render.resolution_x == 320
         assert bpy.context.scene.eevee.taa_render_samples == 16
         print("[OK] scene setup via blender_set + run_operator")
+
+        # 16. Hierarchy management: collections and transform-preserved parenting
+        col_res = payload(
+            tool_call(
+                "blender_manage_hierarchy",
+                {
+                    "action": "create_collection",
+                    "collection": "AdaptiveAssets",
+                    "color_tag": "COLOR_04",
+                },
+            )
+        )
+        assert col_res["status"] == "ok"
+        assert col_res["collection"] == "AdaptiveAssets"
+
+        # Spawn a chassis and two wheels via operator
+        payload(
+            tool_call(
+                "blender_run_operator",
+                {
+                    "primitive_type": "box",
+                    "name": "Chassis",
+                    "location": [0.0, 0.0, 1.0],
+                },
+            )
+        )
+        payload(
+            tool_call(
+                "blender_run_operator",
+                {
+                    "primitive_type": "cylinder",
+                    "name": "Wheel_L",
+                    "location": [-1.5, 0.0, 0.5],
+                },
+            )
+        )
+        payload(
+            tool_call(
+                "blender_run_operator",
+                {
+                    "primitive_type": "cylinder",
+                    "name": "Wheel_R",
+                    "location": [1.5, 0.0, 0.5],
+                },
+            )
+        )
+
+        # Move to AdaptiveAssets collection
+        move_res = payload(
+            tool_call(
+                "blender_manage_hierarchy",
+                {
+                    "action": "move_to_collection",
+                    "collection": "AdaptiveAssets",
+                    "objects": ["Chassis", "Wheel_L", "Wheel_R"],
+                    "mode": "move",
+                },
+            )
+        )
+        assert move_res["status"] == "ok"
+        assert len(move_res["objects"]) == 3
+        assert "Wheel_L" in bpy.data.collections["AdaptiveAssets"].objects
+
+        # Parent wheels to Chassis keeping transform
+        parent_res = payload(
+            tool_call(
+                "blender_manage_hierarchy",
+                {
+                    "action": "set_parent",
+                    "parent": "Chassis",
+                    "children": ["Wheel_L", "Wheel_R"],
+                    "keep_transform": True,
+                },
+            )
+        )
+        assert parent_res["status"] == "ok"
+        wheel_l = bpy.data.objects["Wheel_L"]
+        assert wheel_l.parent.name == "Chassis"
+        # World coordinates preserved: x should still be -1.5
+        assert round(wheel_l.matrix_world.translation.x, 3) == -1.5
+
+        # Move chassis by +2 in X and verify wheel followed in world space
+        bpy.data.objects["Chassis"].location.x += 2.0
+        bpy.context.view_layer.update()
+        assert round(wheel_l.matrix_world.translation.x, 3) == 0.5
+
+        # Clear parent of Wheel_R keeping transform
+        clear_res = payload(
+            tool_call(
+                "blender_manage_hierarchy",
+                {
+                    "action": "clear_parent",
+                    "objects": ["Wheel_R"],
+                    "keep_transform": True,
+                },
+            )
+        )
+        assert clear_res["status"] == "ok"
+        wheel_r = bpy.data.objects["Wheel_R"]
+        assert wheel_r.parent is None
+        # World position of Wheel_R was 1.5 + 2 = 3.5
+        assert round(wheel_r.matrix_world.translation.x, 3) == 3.5
+
+        # Inspect hierarchy
+        insp_hier = payload(
+            tool_call(
+                "blender_manage_hierarchy",
+                {
+                    "action": "inspect",
+                    "target": "all",
+                },
+            )
+        )
+        assert insp_hier["status"] == "ok"
+        assert "collections" in insp_hier
+        assert "root_objects" in insp_hier
+        print("[OK] blender_manage_hierarchy: collections and transform-preserved parenting")
     finally:
         blender_mcp_core.stop_server()
         time.sleep(0.1)

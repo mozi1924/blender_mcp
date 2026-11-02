@@ -72,7 +72,10 @@ fn register_runtime(target: &Bound<'_, PyAny>) -> PyResult<()> {
         tools::helper::set_runtime_module_name(name);
         return Ok(());
     }
-    if let Ok(name) = target.getattr("__name__").and_then(|v| v.extract::<String>()) {
+    if let Ok(name) = target
+        .getattr("__name__")
+        .and_then(|v| v.extract::<String>())
+    {
         tools::helper::set_runtime_module_name(name);
         return Ok(());
     }

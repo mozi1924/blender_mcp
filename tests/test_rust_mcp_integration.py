@@ -112,7 +112,7 @@ def run_tests():
     expected_tools = [
         "blender_describe", "blender_inspect", "blender_run_operator",
         "blender_set", "blender_manage_modifier", "blender_manage_nodes",
-        "blender_capture", "blender_execute_script",
+        "blender_capture", "blender_execute_script", "blender_manage_hierarchy",
     ]
     for exp in expected_tools:
         assert exp in tool_names, f"Expected tool {exp} missing!"
@@ -558,6 +558,50 @@ print(f"Pre-injected test: dot={dot_prod}, pi={round(rad, 4)}")
     }))
     assert not undo_res["result"]["isError"], f"Undo failed: {undo_res}"
     print("   [OK] Undo performed cleanly")
+
+    # Test 12: blender_manage_hierarchy (collection nesting, move, parenting with keep_transform)
+    print("==> Test 12: blender_manage_hierarchy")
+    # First create RustSphere to parent
+    run_rpc_with_main_loop(lambda: tool_call("blender_run_operator", {
+        "primitive_type": "sphere",
+        "name": "RustSphere",
+        "location": [2.0, 3.0, 6.0]
+    }))
+
+    h_col = run_rpc_with_main_loop(lambda: tool_call("blender_manage_hierarchy", {
+        "action": "create_collection",
+        "collection": "PropsCollection",
+        "color_tag": "COLOR_02"
+    }))
+    assert not h_col["result"]["isError"], f"Create collection failed: {h_col}"
+    h_col_data = json.loads(h_col["result"]["content"][0]["text"])
+    assert h_col_data["status"] == "ok"
+
+    h_move = run_rpc_with_main_loop(lambda: tool_call("blender_manage_hierarchy", {
+        "action": "move_to_collection",
+        "collection": "PropsCollection",
+        "objects": ["RustSphere"],
+        "mode": "move"
+    }))
+    assert not h_move["result"]["isError"], f"Move to collection failed: {h_move}"
+
+    h_parent = run_rpc_with_main_loop(lambda: tool_call("blender_manage_hierarchy", {
+        "action": "set_parent",
+        "parent": "RustCube",
+        "children": ["RustSphere"],
+        "keep_transform": True
+    }))
+    assert not h_parent["result"]["isError"], f"Set parent failed: {h_parent}"
+    h_parent_data = json.loads(h_parent["result"]["content"][0]["text"])
+    assert h_parent_data["status"] == "ok"
+    assert bpy.data.objects["RustSphere"].parent.name == "RustCube"
+
+    h_insp = run_rpc_with_main_loop(lambda: tool_call("blender_manage_hierarchy", {
+        "action": "inspect",
+        "target": "all"
+    }))
+    assert not h_insp["result"]["isError"], f"Inspect hierarchy failed: {h_insp}"
+    print("   [OK] blender_manage_hierarchy operations verified")
 
     # Stop Server
     print("==> Stopping server...")

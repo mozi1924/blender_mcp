@@ -11,6 +11,7 @@ from . import nodes  # noqa: F401
 from . import script  # noqa: F401
 from . import describe  # noqa: F401
 from . import operator  # noqa: F401
+from . import hierarchy  # noqa: F401
 
 __all__ = [
     "schemas",
@@ -22,4 +23,5 @@ __all__ = [
     "script",
     "describe",
     "operator",
+    "hierarchy",
 ]

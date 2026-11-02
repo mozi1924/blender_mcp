@@ -344,6 +344,77 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                       'description': 'List of node ids to '
                                                                                      'remove in '
                                                                                      "'remove_nodes'."}}}},
+ 'blender_manage_hierarchy': {'name': 'blender_manage_hierarchy',
+                             'description': 'Comprehensive scene hierarchy and collection management tool for '
+                                            'Blender: parent and unparent objects with transform preservation '
+                                            '(keep_transform), bone parenting, create/nest/reparent collections, '
+                                            'move or link objects between collections, configure collection '
+                                            'visibility, renderability, color tags and view-layer exclusion, and '
+                                            'inspect outliner hierarchies.',
+                             'inputSchema': {'type': 'object',
+                                             'required': ['action'],
+                                             'properties': {'action': {'type': 'string',
+                                                                       'enum': ['set_parent',
+                                                                                'clear_parent',
+                                                                                'create_collection',
+                                                                                'move_to_collection',
+                                                                                'unlink_from_collection',
+                                                                                'remove_collection',
+                                                                                'configure_collection',
+                                                                                'inspect'],
+                                                                       'description': 'Hierarchy action to perform.'},
+                                                            'children': {'oneOf': [{'type': 'string'},
+                                                                                   {'type': 'array',
+                                                                                    'items': {'type': 'string'}}],
+                                                                         'description': "Child object name(s) for 'set_parent'."},
+                                                            'parent': {'type': 'string',
+                                                                       'description': "Parent object name for 'set_parent'."},
+                                                            'parent_type': {'type': 'string',
+                                                                            'default': 'OBJECT',
+                                                                            'description': 'Parenting type (live RNA enum: OBJECT, ARMATURE, BONE, VERTEX, etc.).'},
+                                                            'parent_bone': {'type': 'string',
+                                                                            'description': "Specific bone name on parent armature when parent_type is 'BONE'."},
+                                                            'objects': {'oneOf': [{'type': 'string'},
+                                                                                  {'type': 'array',
+                                                                                   'items': {'type': 'string'}}],
+                                                                        'description': "Object name(s) for 'clear_parent', 'move_to_collection', or 'unlink_from_collection'."},
+                                                            'keep_transform': {'type': 'boolean',
+                                                                               'default': True,
+                                                                               'description': 'Whether to maintain world transform when parenting or unparenting.'},
+                                                            'collection': {'type': 'string',
+                                                                           'description': 'Target or subject collection name.'},
+                                                            'parent_collection': {'type': 'string',
+                                                                                  'description': "Parent collection name for nesting during 'create_collection' or 'configure_collection'."},
+                                                            'color_tag': {'type': 'string',
+                                                                          'description': 'Collection color tag identifier (live RNA enum: NONE, COLOR_01..COLOR_08).'},
+                                                            'mode': {'type': 'string',
+                                                                     'enum': ['move', 'link'],
+                                                                     'default': 'move',
+                                                                     'description': "For 'move_to_collection': 'move' (unlink from other collections) or 'link' (keep multi-collection membership)."},
+                                                            'new_name': {'type': 'string',
+                                                                         'description': "New name for renaming in 'configure_collection'."},
+                                                            'hide_viewport': {'type': 'boolean',
+                                                                              'description': 'Set viewport visibility on collection.'},
+                                                            'hide_render': {'type': 'boolean',
+                                                                            'description': 'Set render visibility on collection.'},
+                                                            'exclude': {'type': 'boolean',
+                                                                        'description': 'Set active view layer collection exclusion.'},
+                                                            'keep_objects': {'type': 'boolean',
+                                                                             'default': True,
+                                                                             'description': 'When removing collection, whether to preserve its objects by moving to parent collection.'},
+                                                            'delete_hierarchy': {'type': 'boolean',
+                                                                                  'default': False,
+                                                                                  'description': 'When removing collection, whether to recursively delete child collections.'},
+                                                            'target': {'type': 'string',
+                                                                       'enum': ['all', 'collections', 'parents'],
+                                                                       'default': 'all',
+                                                                       'description': "Inspection target for 'inspect' action."},
+                                                            'depth': {'type': 'integer',
+                                                                      'default': 5,
+                                                                      'description': "Maximum recursion depth for 'inspect' action."},
+                                                            'undo': {'type': 'boolean',
+                                                                     'default': True,
+                                                                     'description': 'Push an undo step before applying changes.'}}}},
  'blender_execute_script': {'name': 'blender_execute_script',
                             'description': "Execute arbitrary Python code in Blender's main thread with "
                                            'pre-injected utilities (bpy, context as C, data as D, mathutils '
@@ -376,6 +447,7 @@ ANNOTATIONS = {
     "blender_capture": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     "blender_manage_modifier": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
     "blender_manage_nodes": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
+    "blender_manage_hierarchy": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
     "blender_execute_script": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
 }
 
@@ -414,6 +486,15 @@ def _live(schema, name):
                     ),
                 },
             )
+
+        elif name == "blender_manage_hierarchy":
+            import bpy
+            p_prop = bpy.types.Object.bl_rna.properties.get("parent_type")
+            if p_prop is not None:
+                props["parent_type"]["enum"] = [i.identifier for i in p_prop.enum_items]
+            c_prop = bpy.types.Collection.bl_rna.properties.get("color_tag")
+            if c_prop is not None:
+                props["color_tag"]["enum"] = [i.identifier for i in c_prop.enum_items]
 
     except Exception:
         # Introspection is best effort; the literal schema remains a fallback.
