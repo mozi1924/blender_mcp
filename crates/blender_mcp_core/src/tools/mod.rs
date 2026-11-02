@@ -3,6 +3,7 @@ pub mod helper;
 pub mod inspect;
 pub mod material;
 pub mod modifier;
+pub mod nodes;
 pub mod primitive;
 pub mod scene_setup;
 pub mod script;
@@ -345,6 +346,80 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "blender_manage_nodes".to_string(),
+            description: "Unified Node Graph DAG tool for Blender: inspect, query, build, and wire Shader Nodes (materials & world), Geometry Nodes (procedural modeling), and Compositor Nodes using declarative JSON without code.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "tree_type": {
+                        "type": "string",
+                        "enum": ["MATERIAL", "GEOMETRY", "COMPOSITING", "WORLD"],
+                        "default": "MATERIAL",
+                        "description": "Which node tree to target: 'MATERIAL' (shader graph), 'GEOMETRY' (geometry nodes procedural modeling), 'COMPOSITING' (post-processing), or 'WORLD' (environment shader)."
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Target name: object name (for MATERIAL/GEOMETRY) or material name directly."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["inspect", "query_type", "apply_dag", "remove_nodes", "disconnect"],
+                        "default": "inspect",
+                        "description": "Action to perform: 'inspect' (read full node graph), 'query_type' (introspect input/output sockets of a node type), 'apply_dag' (declarative node creation and link wiring), 'remove_nodes', or 'disconnect'."
+                    },
+                    "node_type": {
+                        "type": "string",
+                        "description": "Node bl_idname for 'query_type' (e.g. 'GeometryNodeMeshCube', 'ShaderNodeTexNoise', 'GeometryNodeExtrudeMesh')."
+                    },
+                    "material_name": {
+                        "type": "string",
+                        "description": "Optional specific material name when tree_type is 'MATERIAL'."
+                    },
+                    "modifier_name": {
+                        "type": "string",
+                        "description": "Optional geometry nodes modifier name when tree_type is 'GEOMETRY'."
+                    },
+                    "clear": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Whether to clear existing intermediate nodes before applying DAG in 'apply_dag'."
+                    },
+                    "nodes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["type"],
+                            "properties": {
+                                "id": { "type": "string", "description": "Custom node identifier or existing node name." },
+                                "type": { "type": "string", "description": "Node bl_idname (e.g. 'ShaderNodeTexNoise', 'GeometryNodeMeshCube')." },
+                                "location": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2, "description": "Optional [x, y] coordinates. Auto-calculated if omitted." },
+                                "inputs": { "type": "object", "description": "Key-value input socket defaults (e.g. {'Scale': 10.0, 'Base Color': '#FF5500', 'Material': 'Gold'})." },
+                                "properties": { "type": "object", "description": "Key-value node properties (e.g. {'operation': 'MULTIPLY'})." }
+                            }
+                        },
+                        "description": "List of nodes to create or configure in 'apply_dag'."
+                    },
+                    "links": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["from", "to"],
+                            "properties": {
+                                "from": { "type": "string", "description": "Source socket: 'node_id.SocketName' (e.g. 'noise.Color')." },
+                                "to": { "type": "string", "description": "Destination socket: 'node_id.SocketName' (e.g. 'bsdf.Base Color')." }
+                            }
+                        },
+                        "description": "List of link connections in 'apply_dag'."
+                    },
+                    "node_ids": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "List of node ids to remove in 'remove_nodes'."
+                    }
+                }
+            }),
+        },
+        ToolDefinition {
             name: "blender_undo".to_string(),
             description: "Undo the last operation in Blender.".to_string(),
             input_schema: json!({
@@ -364,6 +439,7 @@ pub fn execute_tool(py: Python<'_>, name: &str, args: serde_json::Value) -> Tool
         "blender_manage_modifier" => modifier::manage_modifier(py, args),
         "blender_manage_material" => material::manage_material(py, args),
         "blender_setup_scene" => scene_setup::setup_scene(py, args),
+        "blender_manage_nodes" => nodes::manage_nodes(py, args),
         "blender_execute_script" => script::execute_script(py, args),
         "blender_undo" => undo::undo(py, args),
         _ => ToolCallResponse::error(format!("Unknown tool: {}", name)),

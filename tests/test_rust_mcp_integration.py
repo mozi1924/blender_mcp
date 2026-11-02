@@ -97,7 +97,7 @@ def run_tests():
         "blender_inspect", "blender_capture", "blender_create_primitive",
         "blender_transform_object", "blender_manage_modifier",
         "blender_manage_material", "blender_setup_scene",
-        "blender_execute_script", "blender_undo"
+        "blender_manage_nodes", "blender_execute_script", "blender_undo"
     ]
     for exp in expected_tools:
         assert exp in tool_names, f"Expected tool {exp} missing!"
@@ -168,6 +168,85 @@ def run_tests():
     assert not mat_res["result"]["isError"], f"Material assign failed: {mat_res}"
     assert cube_obj.data.materials[0].name == "MetallicBlue"
     print("   [OK] Created & assigned MetallicBlue material (metallic=0.9, roughness=0.1)")
+
+    # Test 7.1: blender_manage_nodes (query_type)
+    print("==> Test 7.1: blender_manage_nodes (query_type)")
+    q_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "action": "query_type",
+        "node_type": "ShaderNodeTexNoise"
+    }))
+    assert not q_res["result"]["isError"], f"Query type failed: {q_res}"
+    q_data = json.loads(q_res["result"]["content"][0]["text"])
+    assert q_data["status"] == "ok"
+    assert any(s["name"] == "Scale" for s in q_data["inputs"])
+    print("   [OK] Queried ShaderNodeTexNoise sockets successfully")
+
+    # Test 7.2: blender_manage_nodes (apply_dag on MATERIAL)
+    print("==> Test 7.2: blender_manage_nodes (apply_dag on MATERIAL)")
+    mat_dag_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "tree_type": "MATERIAL",
+        "target": "RustCube",
+        "action": "apply_dag",
+        "nodes": [
+            {
+                "id": "noise_tex",
+                "type": "ShaderNodeTexNoise",
+                "inputs": {"Scale": 12.0}
+            },
+            {
+                "id": "bsdf_node",
+                "type": "ShaderNodeBsdfPrincipled",
+                "inputs": {"Metallic": 0.8, "Roughness": 0.2}
+            },
+            {
+                "id": "mat_output",
+                "type": "ShaderNodeOutputMaterial"
+            }
+        ],
+        "links": [
+            {"from": "noise_tex.Color", "to": "bsdf_node.Base Color"},
+            {"from": "bsdf_node.BSDF", "to": "mat_output.Surface"}
+        ]
+    }))
+    assert not mat_dag_res["result"]["isError"], f"Material DAG failed: {mat_dag_res}"
+    print("   [OK] Wired procedural Material DAG successfully")
+
+    # Test 7.3: blender_manage_nodes (apply_dag on GEOMETRY NODES)
+    print("==> Test 7.3: blender_manage_nodes (apply_dag on GEOMETRY NODES)")
+    geo_dag_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "tree_type": "GEOMETRY",
+        "target": "RustCube",
+        "action": "apply_dag",
+        "nodes": [
+            {
+                "id": "cone_mesh",
+                "type": "GeometryNodeMeshCone",
+                "inputs": {"Radius Top": 0.0, "Radius Bottom": 1.5, "Depth": 3.0}
+            },
+            {
+                "id": "group_out",
+                "type": "NodeGroupOutput"
+            }
+        ],
+        "links": [
+            {"from": "cone_mesh.Mesh", "to": "group_out.Geometry"}
+        ]
+    }))
+    assert not geo_dag_res["result"]["isError"], f"Geometry DAG failed: {geo_dag_res}"
+    print("   [OK] Wired Geometry Nodes procedural cone DAG successfully")
+
+    # Test 7.4: blender_manage_nodes (inspect GEOMETRY NODES)
+    print("==> Test 7.4: blender_manage_nodes (inspect GEOMETRY NODES)")
+    geo_insp_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_nodes", {
+        "tree_type": "GEOMETRY",
+        "target": "RustCube",
+        "action": "inspect"
+    }))
+    assert not geo_insp_res["result"]["isError"], f"Inspect geo failed: {geo_insp_res}"
+    insp_geo_data = json.loads(geo_insp_res["result"]["content"][0]["text"])
+    assert insp_geo_data["status"] == "ok"
+    assert insp_geo_data["nodes_count"] >= 2
+    print(f"   [OK] Inspected Geometry Nodes tree: {insp_geo_data['nodes_count']} nodes, {insp_geo_data['links_count']} links")
 
     # Test 8: blender_setup_scene
     print("==> Test 8: blender_setup_scene")

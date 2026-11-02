@@ -13,7 +13,8 @@ build:
 	@mkdir -p addon/blender_mcp
 	@cp target/release/libblender_mcp_core.dylib addon/blender_mcp/blender_mcp_core.so 2>/dev/null || \
 	 cp target/release/libblender_mcp_core.so addon/blender_mcp/blender_mcp_core.so
-	@echo "==> Copied blender_mcp_core.so to addon/blender_mcp/"
+	@codesign -s - -f addon/blender_mcp/blender_mcp_core.so 2>/dev/null || true
+	@echo "==> Copied and signed blender_mcp_core.so in addon/blender_mcp/"
 
 build-debug:
 	@echo "==> Building blender_mcp_core (debug)..."
@@ -21,6 +22,8 @@ build-debug:
 	@mkdir -p addon/blender_mcp
 	@cp target/debug/libblender_mcp_core.dylib addon/blender_mcp/blender_mcp_core.so 2>/dev/null || \
 	 cp target/debug/libblender_mcp_core.so addon/blender_mcp/blender_mcp_core.so
+	@codesign -s - -f addon/blender_mcp/blender_mcp_core.so 2>/dev/null || true
+	@echo "==> Copied and signed blender_mcp_core.so in addon/blender_mcp/"
 
 test: build
 	@echo "==> Running integration tests in headless Blender..."
