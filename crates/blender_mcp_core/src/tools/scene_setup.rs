@@ -5,12 +5,14 @@ use pyo3::prelude::*;
 pub fn setup_scene(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
     let code = r#"
 import bpy
+from blender_mcp_runtime import catalogs, rna
 
 def run_setup(args):
     bpy.ops.ed.undo_push(message="MCP Setup Scene")
 
     scene = bpy.context.scene
     changes = []
+    warnings = []
 
     # 1. Camera configuration
     if "camera" in args:
@@ -81,25 +83,27 @@ def run_setup(args):
                 l_obj.data.color = c[:3]
                 changes.append(f"light color={c}")
 
-    # 3. Render engine
+    # 3. Render engine (validated against the live engine enum)
     if "render_engine" in args:
-        engine = args["render_engine"].upper()
-        prop = bpy.types.RenderSettings.bl_rna.properties.get("engine")
-        valid_engines = {item.identifier for item in prop.enum_items} if prop else set()
+        requested = str(args["render_engine"]).upper()
+        valid_engines = {item["identifier"] for item in catalogs.render_engines()["engines"]}
 
-        if engine in ("EEVEE", "BLENDER_EEVEE", "EEVEE_NEXT", "BLENDER_EEVEE_NEXT"):
-            if "BLENDER_EEVEE" in valid_engines:
-                scene.render.engine = "BLENDER_EEVEE"
-            elif "BLENDER_EEVEE_NEXT" in valid_engines:
-                scene.render.engine = "BLENDER_EEVEE_NEXT"
-            else:
-                scene.render.engine = "BLENDER_EEVEE"
-        elif engine in ("CYCLES",):
-            scene.render.engine = "CYCLES"
-        elif engine in ("WORKBENCH", "BLENDER_WORKBENCH"):
-            scene.render.engine = "BLENDER_WORKBENCH"
-        elif engine in valid_engines:
-            scene.render.engine = engine
+        # Semantic aliases across Blender versions; never a hardcoded enum.
+        if requested in ("EEVEE", "EEVEE_NEXT", "BLENDER_EEVEE_NEXT") and "BLENDER_EEVEE" in valid_engines:
+            engine = "BLENDER_EEVEE"
+        elif requested == "WORKBENCH":
+            engine = "BLENDER_WORKBENCH"
+        else:
+            engine = requested
+
+        if engine not in valid_engines:
+            return {
+                "status": "error",
+                "message": f"Render engine '{requested}' is not available in this session. "
+                           f"Valid engines: {sorted(valid_engines)}. "
+                           "Enable the Cycles add-on for 'CYCLES'."
+            }
+        scene.render.engine = engine
         changes.append(f"render_engine={scene.render.engine}")
 
     # 4. Resolution
@@ -110,33 +114,52 @@ def run_setup(args):
             scene.render.resolution_y = int(res[1])
             changes.append(f"resolution={res[0]}x{res[1]}")
 
-    # 5. Samples
+    # 5. Samples: discover the active engine's sample property via RNA.
     if "samples" in args:
         samples = int(args["samples"])
-        if scene.render.engine == 'CYCLES':
-            scene.cycles.samples = samples
-        elif hasattr(scene, "eevee"):
-            if hasattr(scene.eevee, "taa_render_samples"):
-                scene.eevee.taa_render_samples = samples
-        changes.append(f"samples={samples}")
+        candidates = []
+        if scene.render.engine == "CYCLES" and hasattr(scene, "cycles"):
+            candidates.append(scene.cycles)
+        if hasattr(scene, "eevee"):
+            candidates.append(scene.eevee)
+        candidates.append(scene.render)
 
-    # 6. World background color
-    if "world_color" in args and scene.world and scene.world.use_nodes:
-        bg_node = None
-        for node in scene.world.node_tree.nodes:
-            if node.type == 'BACKGROUND':
-                bg_node = node
+        applied = False
+        for target in candidates:
+            for key in ("samples", "taa_render_samples"):
+                if rna.find_property(target, key)[0] is not None:
+                    result = rna.apply_properties(target, {key: samples})
+                    if result.get("applied"):
+                        changes.append(f"samples={samples} ({key})")
+                        applied = True
+                        break
+            if applied:
                 break
-        if bg_node:
-            c = args["world_color"]
-            if len(c) == 3:
-                c = [c[0], c[1], c[2], 1.0]
-            bg_node.inputs['Color'].default_value = c
-            changes.append(f"world_color={c}")
+        if not applied:
+            warnings.append(f"No sample property found for engine '{scene.render.engine}'")
+
+    # 6. World background color (socket found by RNA name, not by index).
+    if "world_color" in args and scene.world:
+        world = scene.world
+        if getattr(world, "node_tree", None) is None:
+            world.use_nodes = True
+        bg_node = next((n for n in world.node_tree.nodes if n.type == "BACKGROUND"), None)
+        if bg_node is None:
+            bg_node = world.node_tree.nodes.new("ShaderNodeBackground")
+        color_socket = rna.find_socket(bg_node, "Color")
+        if color_socket is not None:
+            try:
+                rna.set_socket_value(color_socket, args["world_color"])
+                changes.append(f"world_color={args['world_color']}")
+            except Exception as ex:
+                warnings.append(f"Could not set world color: {ex}")
+        else:
+            warnings.append("World background node has no 'Color' socket")
 
     return {
         "status": "ok",
         "message": "Scene setup updated: " + ", ".join(changes),
+        "warnings": warnings,
         "active_camera": scene.camera.name if scene.camera else None,
         "render_engine": scene.render.engine,
         "resolution": [scene.render.resolution_x, scene.render.resolution_y]

@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "blender_mcp_rust"
-version = "0.2.0"
+version = "0.3.0"
 name = "Blender MCP (Rust)"
 tagline = "High-performance Rust MCP server extension for LLM interaction"
 maintainer = "Blender MCP Community"

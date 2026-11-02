@@ -9,7 +9,7 @@ High-performance embedded MCP server for LLMs & AI agents.
 bl_info = {
     "name": "Blender MCP (Rust)",
     "author": "Blender MCP Community",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (5, 1, 0),
     "location": "View3D > Sidebar > MCP Tab",
     "description": "High-performance Rust-powered MCP server providing semantic tools for AI agents",
@@ -180,10 +180,11 @@ class VIEW3D_PT_blender_mcp(bpy.types.Panel):
             box.operator("blmcp.server_start", text="Start Server", icon="PLAY")
 
         box2 = layout.box()
-        box2.label(text="Semantic Tools: 10 Available", icon="TOOL_SETTINGS")
-        box2.label(text="Inspect, Primitives, Transform,")
-        box2.label(text="Modifiers, Materials, Nodes,")
-        box2.label(text="Setup, Capture, Script, Undo")
+        box2.label(text="Adaptive Tools: 12 Available", icon="TOOL_SETTINGS")
+        box2.label(text="Describe, Run Operator, Inspect,")
+        box2.label(text="Primitives, Transform, Modifiers,")
+        box2.label(text="Materials, Nodes, Setup, Capture,")
+        box2.label(text="Script, Undo")
 
 
 classes = (

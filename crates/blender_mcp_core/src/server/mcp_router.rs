@@ -1,9 +1,11 @@
-use crate::bridge::channel::send_request;
+use crate::bridge::channel::{send_request, ToolContent};
 use crate::server::protocol::JsonRpcRequest;
 use crate::server::protocol::JsonRpcResponse;
 use crate::tools;
 use serde_json::json;
 use std::time::Duration;
+
+const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> {
     let id = req.id.clone();
@@ -19,9 +21,9 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
                 },
                 "serverInfo": {
                     "name": "blender-mcp-rust",
-                    "version": "0.2.0"
+                    "version": SERVER_VERSION
                 },
-                "instructions": "Connected to Blender 5.x via high-performance Rust MCP. Use semantic tools (blender_inspect, blender_create_primitive, blender_transform_object, blender_manage_modifier, blender_manage_material, blender_setup_scene, blender_capture, blender_execute_script) for high-fidelity 3D modeling and visual workflows."
+                "instructions": "Connected to Blender 5.x via a high-performance Rust MCP server. The tool surface is adaptive: call blender_describe (target=operator/operators/modifier/node_types/primitives/render_engines) to read live RNA parameters and enum identifiers for the current Blender session, then blender_run_operator for any bpy.ops function. Semantic tools (blender_inspect, blender_create_primitive, blender_transform_object, blender_manage_modifier, blender_manage_material, blender_manage_nodes, blender_setup_scene, blender_capture, blender_execute_script) build on the same RNA kernel."
             });
             Some(JsonRpcResponse::success(id, res))
         }
@@ -34,8 +36,34 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
         "ping" => Some(JsonRpcResponse::success(id, json!({}))),
 
         "tools/list" => {
-            let tools_list = tools::get_tool_definitions();
-            Some(JsonRpcResponse::success(id, json!({ "tools": tools_list })))
+            let mut tool_list = tools::get_tool_definitions();
+
+            // The Python runtime owns the adaptive catalog (live enums/schemas).
+            // Merge it over the static fallback; a busy main thread simply keeps
+            // the static definitions for this call.
+            if let Ok(rx) = send_request("__list_tools__".to_string(), json!({})) {
+                if let Ok(Ok(resp)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
+                    if !resp.is_error {
+                        if let Some(ToolContent::Text { text }) = resp.content.first() {
+                            if let Ok(dynamic) =
+                                serde_json::from_str::<Vec<tools::ToolDefinition>>(text)
+                            {
+                                for tool in dynamic {
+                                    if let Some(existing) =
+                                        tool_list.iter_mut().find(|item| item.name == tool.name)
+                                    {
+                                        *existing = tool;
+                                    } else {
+                                        tool_list.push(tool);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Some(JsonRpcResponse::success(id, json!({ "tools": tool_list })))
         }
 
         "tools/call" => {

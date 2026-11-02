@@ -1,4 +1,4 @@
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -45,6 +45,15 @@ impl ToolCallResponse {
         }
     }
 
+    /// Error response that preserves the runtime's structured diagnostics.
+    pub fn json_error(val: &serde_json::Value) -> Self {
+        let text = serde_json::to_string_pretty(val).unwrap_or_else(|_| val.to_string());
+        Self {
+            is_error: true,
+            content: vec![ToolContent::Text { text }],
+        }
+    }
+
     pub fn image(data_base64: String, mime_type: String, caption: Option<String>) -> Self {
         let mut content = Vec::new();
         if let Some(cap) = caption {
@@ -84,10 +93,14 @@ pub fn send_request(
         responder: tx,
     };
     let bridge = get_bridge();
-    bridge
-        .0
-        .send(req)
-        .map_err(|e| format!("Failed to send tool request to Blender main thread: {}", e))?;
+    bridge.0.try_send(req).map_err(|e| match e {
+        TrySendError::Full(_) => "Blender main thread is busy (request queue full, 128 pending). \
+                 Wait for the current tool call to finish and retry."
+            .to_string(),
+        TrySendError::Disconnected(_) => {
+            "Failed to send tool request to Blender main thread: bridge disconnected".to_string()
+        }
+    })?;
     Ok(rx)
 }
 

@@ -309,32 +309,15 @@ def run_inspect(args):
             "missing_files": missing_files,
         }
 
-    # 4. Target: datablocks
+    # 4. Target: datablocks (discovered from bpy.data RNA)
     elif target == "datablocks":
-        return {
-            "status": "ok",
-            "objects": len(bpy.data.objects),
-            "meshes": len(bpy.data.meshes),
-            "materials": len(bpy.data.materials),
-            "textures": len(bpy.data.textures),
-            "images": len(bpy.data.images),
-            "cameras": len(bpy.data.cameras),
-            "lights": len(bpy.data.lights),
-            "collections": len(bpy.data.collections),
-            "actions": len(bpy.data.actions),
-            "node_groups": len(bpy.data.node_groups),
-            "scenes": len(bpy.data.scenes),
-            "worlds": len(bpy.data.worlds),
-            "curves": len(bpy.data.curves) if hasattr(bpy.data, "curves") else 0,
-            "hair_curves": len(bpy.data.hair_curves) if hasattr(bpy.data, "hair_curves") else 0,
-            "grease_pencils": len(bpy.data.grease_pencils) if hasattr(bpy.data, "grease_pencils") else 0,
-            "armatures": len(bpy.data.armatures) if hasattr(bpy.data, "armatures") else 0,
-            "volumes": len(bpy.data.volumes) if hasattr(bpy.data, "volumes") else 0,
-            "pointclouds": len(bpy.data.pointclouds) if hasattr(bpy.data, "pointclouds") else 0,
-            "fonts": len(bpy.data.fonts) if hasattr(bpy.data, "fonts") else 0,
-            "brushes": len(bpy.data.brushes) if hasattr(bpy.data, "brushes") else 0,
-            "workspaces": len(bpy.data.workspaces) if hasattr(bpy.data, "workspaces") else 0,
-        }
+        from blender_mcp_runtime import catalogs
+        id_types = catalogs.id_types()["id_types"]
+        result = {"status": "ok"}
+        result.update({item["collection"]: item["count"] for item in id_types})
+        result["total_ids"] = len(bpy.data.all_ids)
+        result["id_types"] = id_types
+        return result
     else:
         return {"status": "error", "message": f"Unknown target '{target}'. Allowed: scene, object, file, datablocks"}
 "#;

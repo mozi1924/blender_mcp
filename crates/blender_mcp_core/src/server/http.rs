@@ -38,7 +38,7 @@ async fn health_handler() -> impl IntoResponse {
     Json(json!({
         "status": "ok",
         "server": "blender-mcp-rust",
-        "version": "0.2.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "blender_active": true
     }))
 }

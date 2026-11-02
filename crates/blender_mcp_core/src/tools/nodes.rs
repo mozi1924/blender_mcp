@@ -5,203 +5,35 @@ use pyo3::prelude::*;
 pub fn manage_nodes(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
     let code = r#"
 import bpy
-import os
+from blender_mcp_runtime import catalogs, rna
+from blender_mcp_runtime.rna import find_socket, set_socket_value
 
-NODE_BASE_PROPS = {
-    'rna_type', 'type', 'location', 'location_absolute', 'width', 'height', 'dimensions',
-    'name', 'label', 'inputs', 'outputs', 'panel_states', 'internal_links', 'parent',
-    'warning_propagation', 'use_custom_color', 'color', 'color_tag', 'select',
-    'show_options', 'show_preview', 'hide', 'mute', 'show_texture',
-    'bl_idname', 'bl_label', 'bl_description', 'bl_icon', 'bl_static_type',
-    'bl_width_default', 'bl_width_min', 'bl_width_max', 'bl_height_default',
-    'bl_height_min', 'bl_height_max'
+# Tool-level tree names -> Blender node tree types (API vocabulary, not RNA data).
+_TREE_TYPES = {
+    "MATERIAL": "ShaderNodeTree",
+    "SHADER": "ShaderNodeTree",
+    "WORLD": "ShaderNodeTree",
+    "LINESTYLE": "ShaderNodeTree",
+    "LIGHT": "ShaderNodeTree",
+    "GEOMETRY": "GeometryNodeTree",
+    "COMPOSITING": "CompositorNodeTree",
+    "TEXTURE": "TextureNodeTree",
 }
 
-_NODE_CATALOG_CACHE = None
-
-def get_node_catalog():
-    global _NODE_CATALOG_CACHE
-    if _NODE_CATALOG_CACHE is not None:
-        return _NODE_CATALOG_CACHE
-
-    from bpy.app.translations import pgettext_iface, pgettext_tip
-    catalog = []
-    for name in dir(bpy.types):
-        if name.endswith("Socket") or name in ("Node", "ShaderNode", "GeometryNode", "CompositorNode", "TextureNode", "FunctionNode"):
-            continue
-        rna = bpy.types.Node.bl_rna_get_subclass(name)
-        if rna:
-            affinity = "OTHER"
-            if name.startswith("GeometryNode"):
-                affinity = "GEOMETRY"
-            elif name.startswith("ShaderNode"):
-                affinity = "SHADER"
-            elif name.startswith("CompositorNode"):
-                affinity = "COMPOSITING"
-            elif name.startswith("FunctionNode"):
-                affinity = "FUNCTION"
-            elif name.startswith("TextureNode"):
-                affinity = "TEXTURE"
-
-            name_en = rna.name
-            try:
-                name_i18n = pgettext_iface(name_en)
-            except Exception:
-                name_i18n = name_en
-
-            desc_en = rna.description or ""
-            try:
-                desc_i18n = pgettext_tip(desc_en) if desc_en else ""
-            except Exception:
-                desc_i18n = desc_en
-
-            catalog.append({
-                "identifier": name,
-                "name": name_en,
-                "name_i18n": name_i18n,
-                "description": desc_en,
-                "description_i18n": desc_i18n,
-                "affinity": affinity,
-            })
-    _NODE_CATALOG_CACHE = catalog
-    return _NODE_CATALOG_CACHE
-
-def tree_type_matches(affinity, tree_type):
+def tree_type_id(tree_type):
     if not tree_type:
-        return True
-    tt = tree_type.upper()
-    if tt in ("MATERIAL", "WORLD", "LINESTYLE", "LIGHT", "SHADER"):
-        return affinity in ("SHADER", "FUNCTION")
-    elif tt == "GEOMETRY":
-        return affinity in ("GEOMETRY", "FUNCTION", "SHADER")
-    elif tt == "COMPOSITING":
-        return affinity in ("COMPOSITING", "FUNCTION", "SHADER")
-    elif tt == "TEXTURE":
-        return affinity in ("TEXTURE", "FUNCTION")
-    return True
+        return None
+    return _TREE_TYPES.get(str(tree_type).upper(), tree_type)
 
 def search_nodes(query, tree_type=None, limit=15):
-    catalog = get_node_catalog()
-    q = (query or "").lower().strip()
-    if not q:
-        filtered = [item for item in catalog if tree_type_matches(item["affinity"], tree_type)]
-        return filtered[:limit]
-
-    matches = []
-    for item in catalog:
-        if not tree_type_matches(item["affinity"], tree_type):
-            continue
-
-        score = 0
-        id_l = item["identifier"].lower()
-        name_l = item["name"].lower()
-        name_i18n_l = item["name_i18n"].lower()
-        desc_l = item["description"].lower()
-        desc_i18n_l = item["description_i18n"].lower()
-
-        if q == id_l or q == name_l or q == name_i18n_l:
-            score = 100
-        elif q in name_l or q in name_i18n_l:
-            score = 50
-        elif q in id_l:
-            score = 30
-        elif q in desc_l or q in desc_i18n_l:
-            score = 10
-
-        if score > 0:
-            matches.append((score, item))
-
-    matches.sort(key=lambda x: -x[0])
-    return [m[1] for m in matches[:limit]]
-
-def hex_to_rgba(hex_str):
-    hex_str = hex_str.lstrip('#')
-    if len(hex_str) == 6:
-        r = int(hex_str[0:2], 16) / 255.0
-        g = int(hex_str[2:4], 16) / 255.0
-        b = int(hex_str[4:6], 16) / 255.0
-        return [r, g, b, 1.0]
-    elif len(hex_str) == 8:
-        r = int(hex_str[0:2], 16) / 255.0
-        g = int(hex_str[2:4], 16) / 255.0
-        b = int(hex_str[4:6], 16) / 255.0
-        a = int(hex_str[6:8], 16) / 255.0
-        return [r, g, b, a]
-    return [1.0, 1.0, 1.0, 1.0]
-
-def find_socket(node, socket_name, is_output=False):
-    sockets = node.outputs if is_output else node.inputs
-    # 1. exact match
-    for s in sockets:
-        if s.name == socket_name or s.identifier == socket_name:
-            return s
-    # 2. normalized match (lowercase, spaces to underscores)
-    norm = socket_name.lower().replace(' ', '_').replace('-', '_')
-    for s in sockets:
-        s_norm = s.name.lower().replace(' ', '_').replace('-', '_')
-        i_norm = s.identifier.lower().replace(' ', '_').replace('-', '_')
-        if s_norm == norm or i_norm == norm:
-            return s
-    # 3. single matching type fallback (e.g. "Shader" or "Geometry")
-    type_matches = [s for s in sockets if getattr(s, 'type', '').lower() == norm]
-    if len(type_matches) == 1:
-        return type_matches[0]
-    return None
-
-def set_socket_value(sock, val):
-    t = getattr(sock, 'type', '')
-    if t in ('RGBA', 'COLOR'):
-        if isinstance(val, str) and val.startswith('#'):
-            sock.default_value = hex_to_rgba(val)
-        elif isinstance(val, (list, tuple)):
-            c = list(val)
-            sock.default_value = c + ([1.0] if len(c) == 3 else [])
-    elif t in ('VECTOR', 'ROTATION'):
-        if isinstance(val, (list, tuple)):
-            sock.default_value = list(val)[:3]
-    elif t == 'INT_VECTOR':
-        if isinstance(val, (list, tuple)):
-            sock.default_value = [int(x) for x in list(val)[:3]]
-    elif t in ('VALUE', 'FLOAT'):
-        sock.default_value = float(val)
-    elif t == 'INT':
-        sock.default_value = int(val)
-    elif t == 'BOOLEAN':
-        sock.default_value = bool(val)
-    elif t == 'STRING':
-        sock.default_value = str(val)
-    elif t == 'MENU':
-        try:
-            sock.default_value = val
-        except Exception:
-            pass
-    elif t == 'MATERIAL':
-        if isinstance(val, str):
-            mat = bpy.data.materials.get(val)
-            if not mat:
-                mat = bpy.data.materials.new(val)
-                mat.use_nodes = True
-            sock.default_value = mat
-    elif t == 'OBJECT':
-        if isinstance(val, str):
-            obj = bpy.data.objects.get(val)
-            if obj:
-                sock.default_value = obj
-    elif t == 'COLLECTION':
-        if isinstance(val, str):
-            coll = bpy.data.collections.get(val)
-            if coll:
-                sock.default_value = coll
-    elif t == 'IMAGE':
-        if isinstance(val, str):
-            img = bpy.data.images.get(val)
-            if not img and os.path.exists(val):
-                try:
-                    img = bpy.data.images.load(val)
-                except Exception:
-                    pass
-            if img:
-                sock.default_value = img
+    # Authoritative, cached validity probing lives in the runtime catalog.
+    result = catalogs.search_node_types(
+        query=query,
+        tree_type=tree_type_id(tree_type),
+        limit=limit,
+        include_tree_types=True,
+    )
+    return result["results"]
 
 def resolve_node_ref(nid, tree, id_to_node):
     if not nid:
@@ -451,11 +283,14 @@ def run_manage_nodes(args):
         if not node_type:
             return {"status": "error", "message": "Argument 'node_type' is required for action 'query_type'"}
 
-        ttype = "GeometryNodeTree"
-        if node_type.startswith("ShaderNode"):
-            ttype = "ShaderNodeTree"
-        elif node_type.startswith("CompositorNode"):
-            ttype = "CompositorNodeTree"
+        valid_trees = catalogs.node_tree_types(node_type)
+        if not valid_trees:
+            suggestions = [item["identifier"] for item in catalogs.node_catalog()]
+            return {
+                "status": "error",
+                "message": f"Unknown node type '{node_type}'. Did you mean: {rna.suggest(node_type, suggestions)}"
+            }
+        ttype = valid_trees[0]
 
         temp_tree = bpy.data.node_groups.new("__temp_mcp_query__", type=ttype)
         try:
@@ -471,10 +306,11 @@ def run_manage_nodes(args):
 
             outs = [{"name": s.name, "identifier": s.identifier, "type": getattr(s, "type", "N/A")} for s in node.outputs]
 
-            # Introspect operational RNA properties
+            # Introspect operational RNA properties (base props derived from RNA)
+            base_props = {p.identifier for p in bpy.types.Node.bl_rna.properties}
             props = {}
             for p in node.bl_rna.properties:
-                if p.identifier not in NODE_BASE_PROPS:
+                if p.identifier not in base_props:
                     val = getattr(node, p.identifier, None)
                     if hasattr(val, "__iter__") and not isinstance(val, (str, dict)):
                         val = list(val)
@@ -488,9 +324,9 @@ def run_manage_nodes(args):
                     props[p.identifier] = prop_info
 
             # Meta info
-            rna = bpy.types.Node.bl_rna_get_subclass(node_type)
+            node_rna = bpy.types.Node.bl_rna_get_subclass(node_type)
             from bpy.app.translations import pgettext_iface
-            name_en = rna.name if rna else node.name
+            name_en = node_rna.name if node_rna else node.name
             try:
                 name_i18n = pgettext_iface(name_en)
             except Exception:
@@ -501,7 +337,9 @@ def run_manage_nodes(args):
                 "node_type": node_type,
                 "name": name_en,
                 "name_i18n": name_i18n,
-                "description": rna.description if rna else "",
+                "description": node_rna.description if node_rna else "",
+                "tree_type": ttype,
+                "valid_tree_types": valid_trees,
                 "inputs": inps,
                 "outputs": outs,
                 "properties": props
@@ -515,8 +353,6 @@ def run_manage_nodes(args):
     tree, desc = get_or_create_tree(tree_type, target_name, mat_name, mod_name)
     if not tree:
         return {"status": "error", "message": desc}
-
-    bpy.ops.ed.undo_push(message="MCP Manage Nodes")
 
     # Action 2: inspect
     if action == "inspect":
@@ -568,6 +404,7 @@ def run_manage_nodes(args):
 
     # Action 3: apply_dag
     elif action in ("apply_dag", "build_graph"):
+        bpy.ops.ed.undo_push(message="MCP Manage Nodes")
         dag_nodes = args.get("nodes", [])
         dag_links = args.get("links", [])
         clear_existing = args.get("clear", False)
@@ -663,6 +500,7 @@ def run_manage_nodes(args):
 
     # Action 4: remove_nodes
     elif action == "remove_nodes":
+        bpy.ops.ed.undo_push(message="MCP Remove Nodes")
         node_ids = args.get("node_ids", [])
         removed = 0
         for nid in node_ids:
@@ -673,6 +511,7 @@ def run_manage_nodes(args):
 
     # Action 5: disconnect
     elif action == "disconnect":
+        bpy.ops.ed.undo_push(message="MCP Disconnect Nodes")
         links_data = args.get("links", [])
         removed_links = 0
         for item in links_data:

@@ -8,22 +8,9 @@ use pyo3::prelude::*;
 pub fn manage_material(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
     let code = r#"
 import bpy
+from blender_mcp_runtime import rna
 
-def hex_to_rgba(hex_str):
-    hex_str = hex_str.lstrip('#')
-    if len(hex_str) == 6:
-        r = int(hex_str[0:2], 16) / 255.0
-        g = int(hex_str[2:4], 16) / 255.0
-        b = int(hex_str[4:6], 16) / 255.0
-        return [r, g, b, 1.0]
-    elif len(hex_str) == 8:
-        r = int(hex_str[0:2], 16) / 255.0
-        g = int(hex_str[2:4], 16) / 255.0
-        b = int(hex_str[4:6], 16) / 255.0
-        a = int(hex_str[6:8], 16) / 255.0
-        return [r, g, b, a]
-    return [1.0, 1.0, 1.0, 1.0]
-
+# Semantic aliases only; socket matching itself is RNA-derived.
 ALIASES = {
     'color': 'basecolor',
     'basecolor': 'basecolor',
@@ -37,44 +24,14 @@ ALIASES = {
 }
 
 def apply_pbr_to_bsdf(bsdf, pbr_dict):
-    norm_inputs = {}
-    for inp in bsdf.inputs:
-        norm = inp.name.lower().replace(' ', '').replace('_', '')
-        norm_inputs[norm] = inp
-
-    updated = []
+    normalized = {}
     for k, v in pbr_dict.items():
         if v is None:
             continue
-        clean_k = k.lower().replace(' ', '').replace('_', '')
-        clean_k = ALIASES.get(clean_k, clean_k)
-        inp = norm_inputs.get(clean_k)
-        if not inp:
-            # Fuzzy substring matching
-            for n, candidate in norm_inputs.items():
-                if clean_k in n or n in clean_k:
-                    inp = candidate
-                    break
-        if inp:
-            try:
-                if inp.type in ('RGBA', 'VECTOR'):
-                    if isinstance(v, str):
-                        c = hex_to_rgba(v)
-                    elif isinstance(v, (list, tuple)):
-                        c = list(v) + [1.0] if len(v) == 3 else list(v)
-                    else:
-                        c = [1.0, 1.0, 1.0, 1.0]
-                    inp.default_value = c
-                elif inp.type == 'VALUE':
-                    inp.default_value = float(v)
-                elif inp.type == 'INT':
-                    inp.default_value = int(v)
-                elif inp.type == 'BOOLEAN':
-                    inp.default_value = bool(v)
-                updated.append(inp.name)
-            except Exception as ex:
-                print(f"Warning: could not set socket {inp.name}={v}: {ex}")
-    return updated
+        clean = k.lower().replace(' ', '').replace('_', '')
+        normalized[ALIASES.get(clean, clean)] = v
+    result = rna.apply_sockets(bsdf, normalized)
+    return list(result.get("applied", {}).keys()), result.get("warnings", [])
 
 def ensure_principled_bsdf(mat):
     if not mat.node_tree:
@@ -205,16 +162,20 @@ def run_material(args):
         mat = bpy.data.materials[mat_name]
         slot_idx = assign_to_slot(mat)
         updated_sockets = []
+        warnings = []
         if incoming_pbr and mat.node_tree:
             bsdf = ensure_principled_bsdf(mat)
-            updated_sockets = apply_pbr_to_bsdf(bsdf, incoming_pbr)
-        return {
+            updated_sockets, warnings = apply_pbr_to_bsdf(bsdf, incoming_pbr)
+        res = {
             "status": "ok",
             "message": f"Assigned material '{mat.name}' to '{obj.name}' (slot {slot_idx})",
             "material": mat.name,
             "slot_index": slot_idx,
             "updated_sockets": updated_sockets
         }
+        if warnings:
+            res["warnings"] = warnings
+        return res
 
     # 4. Action: update_principled
     elif action == "update_principled":
@@ -235,14 +196,17 @@ def run_material(args):
             return {"status": "error", "message": f"No active material found to update on '{obj.name}' (slot {target_slot_idx})"}
 
         bsdf = ensure_principled_bsdf(mat)
-        updated_sockets = apply_pbr_to_bsdf(bsdf, incoming_pbr)
-        return {
+        updated_sockets, warnings = apply_pbr_to_bsdf(bsdf, incoming_pbr)
+        res = {
             "status": "ok",
             "message": f"Updated Principled BSDF on material '{mat.name}' (slot {target_slot_idx})",
             "material": mat.name,
             "slot_index": target_slot_idx,
             "updated_sockets": updated_sockets
         }
+        if warnings:
+            res["warnings"] = warnings
+        return res
 
     # 5. Action: create_and_assign (default)
     else:
@@ -250,16 +214,19 @@ def run_material(args):
         mat = bpy.data.materials.new(name=name)
         mat.use_nodes = True
         bsdf = ensure_principled_bsdf(mat)
-        updated_sockets = apply_pbr_to_bsdf(bsdf, incoming_pbr)
+        updated_sockets, warnings = apply_pbr_to_bsdf(bsdf, incoming_pbr)
         slot_idx = assign_to_slot(mat)
 
-        return {
+        res = {
             "status": "ok",
             "message": f"Created & assigned material '{mat.name}' to '{obj.name}' (slot {slot_idx})",
             "material": mat.name,
             "slot_index": slot_idx,
             "updated_sockets": updated_sockets
         }
+        if warnings:
+            res["warnings"] = warnings
+        return res
 "#;
 
     match call_python_tool(py, code, "run_material", args) {

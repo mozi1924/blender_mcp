@@ -1,10 +1,10 @@
+pub mod adaptive;
 pub mod capture;
 pub mod helper;
 pub mod inspect;
 pub mod material;
 pub mod modifier;
 pub mod nodes;
-pub mod primitive;
 pub mod scene_setup;
 pub mod script;
 pub mod transform;
@@ -71,8 +71,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                     },
                     "shading_type": {
                         "type": "string",
-                        "enum": ["SOLID", "WIREFRAME", "MATERIAL", "RENDERED"],
-                        "description": "Viewport shading mode to use when view is 'viewport'."
+                        "description": "Viewport shading mode (live enum: blender_describe(target='struct', path='View3DShading.type'))."
                     },
                     "film_transparent": {
                         "type": "boolean",
@@ -104,15 +103,17 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "blender_create_primitive".to_string(),
-            description: "Create a 3D primitive object (cube, sphere, cylinder, cone, torus, plane, circle, text, curve, empty, camera, light) with transform, custom name, and target collection.".to_string(),
+            description: "Adaptive primitive creation. 'primitive_type' is a semantic alias (cube, sphere, ico_sphere, cylinder, cone, torus, plane, circle, grid, monkey, text, curve_bezier, curve_circle, empty, camera, light, or any operator-derived kind). All geometric parameters are validated against the live creation operator RNA, so new Blender parameters work without updating this tool. Use blender_describe(target='primitives') to list kinds and blender_describe(target='operator', path=...) for the full parameter schema.".to_string(),
             input_schema: json!({
                 "type": "object",
-                "required": ["primitive_type"],
                 "properties": {
                     "primitive_type": {
                         "type": "string",
-                        "enum": ["cube", "sphere", "cylinder", "cone", "torus", "plane", "circle", "text", "curve_bezier", "curve_circle", "empty", "camera", "light"],
-                        "description": "Type of primitive to create."
+                        "description": "Semantic kind (live list: blender_describe(target='primitives'))."
+                    },
+                    "operator": {
+                        "type": "string",
+                        "description": "Explicit creation operator, e.g. 'mesh.primitive_grid_add'. Overrides primitive_type."
                     },
                     "name": {
                         "type": "string",
@@ -144,13 +145,19 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                     },
                     "collection": {
                         "type": "string",
-                        "description": "Name of collection to place the object in. Automatically created if it doesn't exist."
+                        "description": "Target collection; created automatically if missing."
+                    },
+                    "parameters": {
+                        "type": "object",
+                        "description": "Operator-specific RNA parameters, e.g. {'radius': 1.5, 'segments': 48}. Unknown keys are rejected with suggestions."
                     },
                     "extra": {
                         "type": "object",
-                        "description": "Extra creation parameters (e.g. {'radius': 1.0, 'depth': 2.0, 'text': 'Hello', 'light_type': 'SUN'})."
-                    }
-                }
+                        "description": "Deprecated alias for 'parameters'."
+                    },
+                    "undo": { "type": "boolean", "default": true }
+                },
+                "anyOf": [{ "required": ["primitive_type"] }, { "required": ["operator"] }]
             }),
         },
         ToolDefinition {
@@ -218,7 +225,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "blender_manage_modifier".to_string(),
-            description: "Full-stack adaptive modifier tool for Blender: search catalog (50+ modifiers including Geometry Nodes, Weighted Normal, Subsurf, Boolean, Bevel), introspect RNA properties ('query_type'), inspect object modifier stacks ('inspect'), add, configure, apply, or remove modifiers with automatic pointer resolution (objects, collections, node groups).".to_string(),
+            description: "Full-stack adaptive modifier tool for Blender: search the live modifier catalog, introspect RNA properties ('query_type'), inspect object modifier stacks ('inspect'), add, configure, apply, or remove modifiers with automatic pointer resolution (objects, collections, node groups).".to_string(),
             input_schema: json!({
                 "type": "object",
                 "required": ["action"],
@@ -374,8 +381,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                     },
                     "render_engine": {
                         "type": "string",
-                        "enum": ["BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "CYCLES", "BLENDER_WORKBENCH"],
-                        "description": "Render engine: BLENDER_EEVEE (real-time EEVEE / EEVEE Next), CYCLES (path tracing), or BLENDER_WORKBENCH."
+                        "description": "Render engine identifier. Live enum: blender_describe(target='render_engines'). Only engines registered in this session are accepted."
                     },
                     "resolution": {
                         "type": "array",
@@ -501,6 +507,51 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "blender_describe".to_string(),
+            description: "Adaptive introspection of Blender's live RNA: operator/modifier/node parameters, enum identifiers, defaults, ranges, valid node tree types, render engines and primitive kinds. Use this before guessing any parameter name or enum value.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["target"],
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": ["operator", "operators", "struct", "property", "modifier_types", "modifier", "node_types", "node", "primitives", "render_engines", "id_types", "tool_schemas", "refresh"],
+                        "description": "What to introspect."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Operator path ('mesh.primitive_cube_add'), struct ('Object') or struct property ('RenderSettings.engine')."
+                    },
+                    "property": { "type": "string" },
+                    "modifier_type": { "type": "string" },
+                    "node_type": { "type": "string" },
+                    "tree_type": { "type": "string" },
+                    "query": { "type": "string" },
+                    "module": { "type": "string" },
+                    "prefix": { "type": "string" },
+                    "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 500 }
+                }
+            }),
+        },
+        ToolDefinition {
+            name: "blender_run_operator".to_string(),
+            description: "Run ANY Blender operator by path (e.g. 'object.shade_smooth', 'mesh.primitive_grid_add'). Parameters are validated and coerced against the operator's live RNA; unknown keys are rejected with suggestions, enums accept identifiers or display names, and datablock pointers accept names. Use blender_describe(target='operator') first to discover parameters.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["operator"],
+                "properties": {
+                    "operator": { "type": "string", "description": "Operator path, e.g. 'mesh.primitive_ico_sphere_add'." },
+                    "parameters": { "type": "object", "description": "Operator RNA parameters." },
+                    "undo": { "type": "boolean", "default": true },
+                    "select": {
+                        "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
+                    },
+                    "active": { "type": "string" },
+                    "context": { "type": "object" }
+                }
+            }),
+        },
+        ToolDefinition {
             name: "blender_undo".to_string(),
             description: "Undo the last operation in Blender.".to_string(),
             input_schema: json!({
@@ -515,7 +566,12 @@ pub fn execute_tool(py: Python<'_>, name: &str, args: serde_json::Value) -> Tool
     match name {
         "blender_inspect" => inspect::inspect(py, args),
         "blender_capture" => capture::capture(py, args),
-        "blender_create_primitive" => primitive::create_primitive(py, args),
+        // Adaptive path: primitive creation is driven by operator RNA.
+        "blender_create_primitive" => adaptive::create_primitive(py, args),
+        "blender_describe" => adaptive::describe(py, args),
+        "blender_run_operator" => adaptive::run_operator(py, args),
+        // Internal: live tool catalog for tools/list.
+        "__list_tools__" => adaptive::list_tools_response(py),
         "blender_transform_object" => transform::transform_object(py, args),
         "blender_manage_modifier" => modifier::manage_modifier(py, args),
         "blender_manage_material" => material::manage_material(py, args),

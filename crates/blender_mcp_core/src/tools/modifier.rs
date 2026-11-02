@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 pub fn manage_modifier(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
     let code = r#"
 import bpy
+from blender_mcp_runtime import rna
 
 def run_modifier(args):
     action = args.get("action", "add").lower()
@@ -154,88 +155,12 @@ def run_modifier(args):
             "modifiers": mods_list
         }
 
-    # Helper for setting RNA properties with smart pointer resolution and enum matching
-    def set_smart_prop(mod, k, v):
-        prop = mod.bl_rna.properties.get(k)
-        if not prop:
-            for p_name in mod.bl_rna.properties.keys():
-                if p_name.lower() == k.lower():
-                    prop = mod.bl_rna.properties[p_name]
-                    k = p_name
-                    break
-        if not prop:
-            return False, f"Property '{k}' not found on modifier '{mod.type}'"
-        if prop.is_readonly:
-            return False, f"Property '{k}' is read-only"
-
-        try:
-            if prop.type == 'POINTER':
-                target_type = prop.fixed_type.identifier if prop.fixed_type else None
-                target = None
-                if isinstance(v, str):
-                    if target_type == 'Object':
-                        target = bpy.data.objects.get(v)
-                    elif target_type == 'Collection':
-                        target = bpy.data.collections.get(v)
-                    elif target_type == 'NodeTree':
-                        target = bpy.data.node_groups.get(v)
-                    elif target_type == 'Material':
-                        target = bpy.data.materials.get(v)
-                    elif target_type == 'Texture':
-                        target = bpy.data.textures.get(v)
-                    elif target_type == 'Image':
-                        target = bpy.data.images.get(v)
-                elif v is None:
-                    setattr(mod, k, None)
-                    return True, f"Cleared {k}"
-
-                if target is not None:
-                    setattr(mod, k, target)
-                    return True, f"Set {k} to {target_type} '{v}'"
-                else:
-                    return False, f"Could not find {target_type} '{v}' for property '{k}'"
-
-            elif prop.type == 'ENUM':
-                if isinstance(v, str):
-                    v_upper = v.upper()
-                    matched = None
-                    for it in prop.enum_items:
-                        if it.identifier == v_upper or it.identifier.lower() == v.lower():
-                            matched = it.identifier
-                            break
-                    if matched:
-                        setattr(mod, k, matched)
-                        return True, f"Set {k}={matched}"
-                    else:
-                        valid_items = [it.identifier for it in prop.enum_items]
-                        return False, f"Invalid enum '{v}' for '{k}'. Valid: {valid_items}"
-                else:
-                    setattr(mod, k, v)
-                    return True, f"Set {k}={v}"
-
-            elif prop.type == 'BOOLEAN':
-                setattr(mod, k, bool(v))
-                return True, f"Set {k}={bool(v)}"
-
-            elif prop.type == 'INT':
-                if prop.is_array:
-                    setattr(mod, k, [int(x) for x in v])
-                else:
-                    setattr(mod, k, int(v))
-                return True, f"Set {k}={v}"
-
-            elif prop.type == 'FLOAT':
-                if prop.is_array:
-                    setattr(mod, k, [float(x) for x in v])
-                else:
-                    setattr(mod, k, float(v))
-                return True, f"Set {k}={v}"
-
-            else:
-                setattr(mod, k, v)
-                return True, f"Set {k}={v}"
-        except Exception as ex:
-            return False, f"Error setting {k}={v}: {ex}"
+    # All property setting (pointer resolution, enums, arrays, coercion) is
+    # delegated to the shared RNA kernel; no per-modifier hardcoding here.
+    def apply_modifier_props(mod, mapping):
+        result = rna.apply_properties(mod, mapping)
+        warnings = list(result.get("warnings", [])) + list(result.get("errors", []))
+        return result.get("applied", {}), warnings
 
     mod_name = args.get("modifier_name")
     props = args.get("properties", {})
@@ -253,14 +178,7 @@ def run_modifier(args):
         except Exception as ex:
             return {"status": "error", "message": f"Failed to create modifier '{mod_type}': {ex}"}
 
-        applied_props = {}
-        warnings = []
-        for k, v in props.items():
-            ok, msg = set_smart_prop(mod, k, v)
-            if ok:
-                applied_props[k] = v
-            else:
-                warnings.append(msg)
+        applied_props, warnings = apply_modifier_props(mod, props)
 
         res = {
             "status": "ok",
@@ -283,14 +201,7 @@ def run_modifier(args):
         if not mod:
             return {"status": "error", "message": f"Modifier '{mod_name or mod_type}' not found on '{obj.name}'"}
 
-        applied_props = {}
-        warnings = []
-        for k, v in props.items():
-            ok, msg = set_smart_prop(mod, k, v)
-            if ok:
-                applied_props[k] = v
-            else:
-                warnings.append(msg)
+        applied_props, warnings = apply_modifier_props(mod, props)
 
         res = {
             "status": "ok",
