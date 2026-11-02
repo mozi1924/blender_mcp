@@ -22,14 +22,6 @@ pub fn tool_definitions(py: Python<'_>) -> Result<Vec<ToolDefinition>, String> {
     serde_json::from_str(&json_str).map_err(|e| e.to_string())
 }
 
-pub fn set_profile(py: Python<'_>, profile: &str) -> Result<(), String> {
-    let module = import_runtime(py).map_err(|e| e.to_string())?;
-    module
-        .call_method1("set_tool_profile", (profile,))
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 pub fn execute(py: Python<'_>, name: &str, args: &serde_json::Value) -> ToolCallResponse {
     match call_runtime(py, name, args) {
         Ok(json_str) => respond(json_str),

@@ -6,7 +6,7 @@ End-to-end tests for the adaptive tool layer:
 
   blender_describe      -> live RNA introspection
   blender_run_operator  -> validated bpy.ops execution
-  blender_create_primitive -> operator-driven primitive creation
+  blender_run_operator     -> operator-driven primitive creation
   tools/list            -> live Python catalog overriding static Rust schema
 
 Run with: blender -b --python tests/test_adaptive_tools.py
@@ -97,29 +97,25 @@ def main():
         # 1. tools/list is served from the live Python catalog.
         listed = run_with_main_loop(lambda: rpc_call("tools/list"))
         tools = {tool["name"]: tool for tool in listed["result"]["tools"]}
-        for expected in ("blender_describe", "blender_run_operator", "blender_create_primitive"):
-            assert expected in tools, tools.keys()
-        primitive = tools["blender_create_primitive"]
-        assert "Adaptive" in primitive["description"]
-        assert "operator" in primitive["inputSchema"]["properties"]
-        # No stale hardcoded primitive enum survives in the live schema.
-        assert "enum" not in primitive["inputSchema"]["properties"]["primitive_type"]
-        assert len(tools) == 13, sorted(tools)
-        engine_schema = tools["blender_setup_scene"]["inputSchema"]["properties"]["render_engine"]
-        # The schema now carries the live engine enum, not a stale hardcoded one.
-        assert engine_schema.get("enum"), engine_schema
-        assert "BLENDER_EEVEE_NEXT" not in engine_schema["enum"], engine_schema
+        expected_tools = {
+            "blender_describe", "blender_inspect", "blender_run_operator",
+            "blender_set", "blender_manage_modifier", "blender_manage_nodes",
+            "blender_capture", "blender_execute_script",
+        }
+        assert set(tools) == expected_tools, sorted(tools)
+        run_op = tools["blender_run_operator"]["inputSchema"]["properties"]
+        assert "primitive_type" in run_op and "properties" in run_op
+        set_schema = tools["blender_set"]["inputSchema"]["properties"]
+        assert set(set_schema["mode"]["enum"]) == {"absolute", "relative", "append"}
+        assert "create" in set_schema and "origin_to" in set_schema
         assert len(
             tools["blender_manage_modifier"]["inputSchema"]["properties"]["modifier_type"].get("enum", [])
         ) > 50
         assert "MESH" in tools["blender_inspect"]["inputSchema"]["properties"]["object_type"]["enum"]
-        assert "BOTTOM" in tools["blender_transform_object"]["inputSchema"]["properties"]["origin_to"]["enum"]
-        light_types = tools["blender_setup_scene"]["inputSchema"]["properties"]["light"]["properties"]["type"]["enum"]
-        assert {"POINT", "SUN", "SPOT", "AREA"} <= set(light_types), light_types
         assert tools["blender_describe"]["annotations"]["readOnlyHint"] is True
         assert tools["blender_inspect"]["annotations"]["readOnlyHint"] is True
-        assert tools["blender_create_primitive"]["annotations"]["destructiveHint"] is False
-        print(f"[OK] tools/list exposes {len(tools)} tools with live schemas + annotations")
+        assert tools["blender_set"]["annotations"]["destructiveHint"] is True
+        print(f"[OK] tools/list exposes {len(tools)} consolidated tools")
 
         # 2. Operator RNA introspection.
         cube = payload(
@@ -207,7 +203,7 @@ def main():
         # 7. Adaptive primitives: torus parameters + scale + collection.
         torus = payload(
             tool_call(
-                "blender_create_primitive",
+                "blender_run_operator",
                 {
                     "primitive_type": "torus",
                     "name": "AdaptiveTorus",
@@ -229,18 +225,18 @@ def main():
         print("[OK] adaptive torus: parameters, scale and collection applied")
 
         # 8. New primitive kind that the old hardcoded enum did not contain.
-        monkey = payload(tool_call("blender_create_primitive", {"primitive_type": "monkey"}))
+        monkey = payload(tool_call("blender_run_operator", {"primitive_type": "monkey"}))
         assert bpy.data.objects[monkey["created_object"]["name"]].type == "MESH"
         print("[OK] adaptive monkey primitive (not in the old enum)")
 
         # 9. Deferred data properties (light size/energy) resolve against Light RNA.
         light = payload(
             tool_call(
-                "blender_create_primitive",
+                "blender_run_operator",
                 {
                     "primitive_type": "light",
-                    "parameters": {
-                        "light_type": "AREA",
+                    "parameters": {"type": "AREA"},
+                    "properties": {
                         "energy": 250.0,
                         "color": [1.0, 0.5, 0.2],
                         "size": 3.0,
@@ -256,12 +252,12 @@ def main():
 
         # 10. Invalid deferred parameter is reported, not silently dropped.
         bad_primitive = tool_call(
-            "blender_create_primitive",
+            "blender_run_operator",
             {"primitive_type": "cube", "parameters": {"radii": 2.0}},
         )
         text = error_payload(bad_primitive)
-        assert "radii" in text and "created" in text
-        print("[OK] adaptive primitive reports unresolved parameters")
+        assert "radii" in text and "Did you mean" in text
+        print("[OK] run_operator primitive rejects unknown parameters")
 
         # 10a. Read-only node inspection must not create a Geometry Nodes modifier.
         before_nodes_mods = [m.name for m in bpy.data.objects["AdaptiveTorus"].modifiers if m.type == "NODES"]
@@ -308,10 +304,25 @@ def main():
         assert set_render["applied"]["resolution_x"] == 512
         print("[OK] blender_set: object transform + render settings")
 
-        mat = payload(
+        create_mat = payload(
             tool_call(
-                "blender_manage_material",
-                {"object_name": "AdaptiveTorus", "material_name": "SetMat", "base_color": "#112233"},
+                "blender_set",
+                {
+                    "target": "material:SetMat",
+                    "create": True,
+                    "properties": {"use_nodes": True},
+                },
+            )
+        )
+        assign_mat = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "object:AdaptiveTorus",
+                    "path": "data.materials",
+                    "value": "SetMat",
+                    "mode": "append",
+                },
             )
         )
         set_mat = bpy.data.materials["SetMat"]
@@ -331,7 +342,7 @@ def main():
         assert set_color["status"] == "ok"
         color = set_mat.node_tree.nodes[bsdf_name].inputs["Base Color"].default_value
         assert abs(color[1] - 1.0) < 1e-4
-        print("[OK] blender_set: material node socket color via RNA path")
+        print("[OK] blender_set: material create/append + node socket color")
 
         mod = payload(
             tool_call(
@@ -365,29 +376,74 @@ def main():
         cam_obj.location = (5.0, -5.0, 5.0)
         aim = payload(
             tool_call(
-                "blender_transform_object",
-                {"name": "LookCam", "look_at": "AdaptiveTorus"},
+                "blender_set",
+                {"target": "object:LookCam", "path": "look_at", "value": "AdaptiveTorus"},
             )
         )
         assert any(abs(value) > 1e-4 for value in cam_obj.rotation_euler), cam_obj.rotation_euler
         print("[OK] transform look_at covers camera aiming")
 
-        # 11. Setup scene uses the live engine enum.
-        setup = payload(
+        # 11. Scene configuration via blender_set + blender_run_operator.
+        cam_move = payload(
             tool_call(
-                "blender_setup_scene",
+                "blender_set",
+                {"target": "object:LookCam", "properties": {"location": [8.0, -8.0, 6.0]}},
+            )
+        )
+        cam_aim = payload(
+            tool_call(
+                "blender_set",
+                {"target": "object:LookCam", "path": "look_at", "value": [0.0, 0.0, 0.0]},
+            )
+        )
+        sun = payload(
+            tool_call(
+                "blender_run_operator",
                 {
-                    "camera": {"location": [8.0, -8.0, 6.0], "look_at": [0.0, 0.0, 0.0]},
-                    "render_engine": "EEVEE_NEXT",
-                    "resolution": [320, 240],
-                    "samples": 16,
-                    "world_color": [0.05, 0.05, 0.08],
+                    "operator": "object.light_add",
+                    "parameters": {"type": "SUN"},
+                    "name": "AdaptiveSun",
+                    "properties": {"energy": 3.0},
                 },
             )
         )
-        assert setup["render_engine"].startswith("BLENDER_EEVEE")
+        render = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "scene.render",
+                    "properties": {
+                        "engine": "BLENDER_EEVEE",
+                        "resolution_x": 320,
+                        "resolution_y": 240,
+                    },
+                },
+            )
+        )
+        samples = payload(
+            tool_call(
+                "blender_set",
+                {"target": "scene", "path": "eevee", "properties": {"taa_render_samples": 16}},
+            )
+        )
+        world_obj = bpy.context.scene.world
+        bg_name = next(
+            node.name for node in world_obj.node_tree.nodes if node.type == "BACKGROUND"
+        )
+        world = payload(
+            tool_call(
+                "blender_set",
+                {
+                    "target": "world",
+                    "path": f"node_tree.nodes[{bg_name}].inputs[Color].default_value",
+                    "value": "#0D0D14",
+                },
+            )
+        )
+        assert bpy.context.scene.render.engine == "BLENDER_EEVEE"
         assert bpy.context.scene.render.resolution_x == 320
-        print(f"[OK] setup_scene live engine: {setup['render_engine']}, samples applied")
+        assert bpy.context.scene.eevee.taa_render_samples == 16
+        print("[OK] scene setup via blender_set + run_operator")
     finally:
         blender_mcp_core.stop_server()
         time.sleep(0.1)

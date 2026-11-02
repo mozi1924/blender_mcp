@@ -8,21 +8,8 @@ so catalogs and RNA caches persist across MCP calls.
 """
 
 from . import catalogs, rna
-from .registry import (
-    dispatch,
-    dispatch_json,
-    get,
-    get_profile,
-    list_tools,
-    list_tools_json,
-    register,
-    set_profile,
-)
+from .registry import dispatch, dispatch_json, get, list_tools, list_tools_json, register
 from . import tools as _tools  # noqa: F401  (side effect: registers handlers)
-
-# Rust-friendly aliases.
-set_tool_profile = set_profile
-get_tool_profile = get_profile
 
 __all__ = [
     "dispatch",
@@ -31,8 +18,6 @@ __all__ = [
     "list_tools",
     "list_tools_json",
     "register",
-    "set_tool_profile",
-    "get_tool_profile",
     "rna",
     "catalogs",
 ]

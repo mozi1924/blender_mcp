@@ -89,89 +89,6 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                     'description': 'Optional file path to '
                                                                                    'save the rendered PNG '
                                                                                    'image to disk.'}}}},
- 'blender_transform_object': {'name': 'blender_transform_object',
-                              'description': 'Translate, rotate (Euler degrees, quaternion, or axis-angle), '
-                                             'or scale an existing object. Supports absolute or relative '
-                                             'mode, fine-grained transform applying, and origin manipulation '
-                                             '(geometry, bottom, cursor).',
-                              'inputSchema': {'type': 'object',
-                                              'required': ['name'],
-                                              'properties': {'name': {'type': 'string',
-                                                                      'description': 'Name of the target '
-                                                                                     'object.'},
-                                                             'location': {'type': 'array',
-                                                                          'items': {'type': 'number'},
-                                                                          'minItems': 3,
-                                                                          'maxItems': 3,
-                                                                          'description': 'Location [x, y, '
-                                                                                         'z].'},
-                                                             'rotation': {'type': 'array',
-                                                                          'items': {'type': 'number'},
-                                                                          'minItems': 3,
-                                                                          'maxItems': 3,
-                                                                          'description': 'Rotation in '
-                                                                                         'degrees [rx, ry, '
-                                                                                         'rz]. Automatically '
-                                                                                         'adapts to object '
-                                                                                         'rotation_mode '
-                                                                                         '(Euler, '
-                                                                                         'Quaternion, or '
-                                                                                         'Axis-Angle).'},
-                                                             'scale': {'type': 'array',
-                                                                       'items': {'type': 'number'},
-                                                                       'minItems': 3,
-                                                                       'maxItems': 3,
-                                                                       'description': 'Scale [sx, sy, sz].'},
-                                                             'mode': {'type': 'string',
-                                                                      'enum': ['absolute', 'relative'],
-                                                                      'default': 'absolute',
-                                                                      'description': 'Whether transforms are '
-                                                                                     'absolute world '
-                                                                                     'coordinates or '
-                                                                                     'relative offsets.'},
-                                                             'origin_to': {'type': 'string',
-                                                                           'enum': ['GEOMETRY',
-                                                                                    'BOTTOM',
-                                                                                    'CURSOR',
-                                                                                    'CENTER_OF_MASS'],
-                                                                           'description': 'Set object origin '
-                                                                                          "point: 'GEOMETRY' "
-                                                                                          '(center of '
-                                                                                          "bounds), 'BOTTOM' "
-                                                                                          '(bottom center of '
-                                                                                          'bounding box, '
-                                                                                          'ideal for placing '
-                                                                                          'objects on '
-                                                                                          "floor), 'CURSOR', "
-                                                                                          'or '
-                                                                                          "'CENTER_OF_MASS'."},
-                                                             'apply_transform': {'type': 'boolean',
-                                                                                 'default': False,
-                                                                                 'description': 'Whether to '
-                                                                                                'permanently '
-                                                                                                'apply '
-                                                                                                'location, '
-                                                                                                'rotation, '
-                                                                                                'and scale '
-                                                                                                'to object '
-                                                                                                'data.'},
-                                                             'apply_location': {'type': 'boolean',
-                                                                                'description': 'Whether to '
-                                                                                               'permanently '
-                                                                                               'apply '
-                                                                                               'location '
-                                                                                               'only.'},
-                                                             'apply_rotation': {'type': 'boolean',
-                                                                                'description': 'Whether to '
-                                                                                               'permanently '
-                                                                                               'apply '
-                                                                                               'rotation '
-                                                                                               'only.'},
-                                                             'apply_scale': {'type': 'boolean',
-                                                                             'description': 'Whether to '
-                                                                                            'permanently '
-                                                                                            'apply scale '
-                                                                                            'only.'}}}},
  'blender_manage_modifier': {'name': 'blender_manage_modifier',
                              'description': 'Full-stack adaptive modifier tool for Blender: search the live '
                                             "modifier catalog, introspect RNA properties ('query_type'), "
@@ -260,220 +177,6 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                                           'NodeTree) are '
                                                                                           'resolved '
                                                                                           'automatically.'}}}},
- 'blender_manage_material': {'name': 'blender_manage_material',
-                             'description': 'High-level semantic material and slot asset management for '
-                                            'Blender: create and assign materials across multiple slots, '
-                                            'inspect material slots, assign existing materials, and '
-                                            'configure OpenPBR Principled BSDF v2 surface properties (Base '
-                                            'Color, Metallic, Roughness, IOR, Coat, Sheen, Subsurface, Thin '
-                                            'Film, Emission, Transmission) via dynamic socket mapping.',
-                             'inputSchema': {'type': 'object',
-                                             'required': ['object_name'],
-                                             'properties': {'object_name': {'type': 'string',
-                                                                            'description': 'Target object '
-                                                                                           'name.'},
-                                                            'action': {'type': 'string',
-                                                                       'enum': ['create_and_assign',
-                                                                                'assign_existing',
-                                                                                'update_principled',
-                                                                                'inspect',
-                                                                                'remove_slot'],
-                                                                       'default': 'create_and_assign',
-                                                                       'description': 'Material action: '
-                                                                                      "'create_and_assign', "
-                                                                                      "'assign_existing', "
-                                                                                      "'update_principled', "
-                                                                                      "'inspect' (read all "
-                                                                                      'slots and PBR '
-                                                                                      'values), or '
-                                                                                      "'remove_slot'."},
-                                                            'material_name': {'type': 'string',
-                                                                              'description': 'Material name '
-                                                                                             'to create or '
-                                                                                             'assign.'},
-                                                            'slot_index': {'description': 'Target material '
-                                                                                          'slot index (0, 1, '
-                                                                                          '2...) or '
-                                                                                          "'new'/'append' to "
-                                                                                          'add a new slot to '
-                                                                                          'the object.'},
-                                                            'pbr_properties': {'type': 'object',
-                                                                               'description': 'Arbitrary '
-                                                                                              'key-value map '
-                                                                                              'of Principled '
-                                                                                              'BSDF socket '
-                                                                                              'properties to '
-                                                                                              'set (e.g. '
-                                                                                              "{'coat_weight': "
-                                                                                              '1.0, '
-                                                                                              "'coat_roughness': "
-                                                                                              "0.05, 'ior': "
-                                                                                              '1.45, '
-                                                                                              "'thin_film_thickness': "
-                                                                                              '400.0}). '
-                                                                                              'Sockets are '
-                                                                                              'dynamically '
-                                                                                              'matched.'},
-                                                            'base_color': {'description': 'Base color: '
-                                                                                          'either hex string '
-                                                                                          "like '#FF5500' or "
-                                                                                          '[r, g, b, a] '
-                                                                                          'numbers (0.0 - '
-                                                                                          '1.0).'},
-                                                            'metallic': {'type': 'number',
-                                                                         'minimum': 0.0,
-                                                                         'maximum': 1.0,
-                                                                         'description': 'Metallic value (0.0 '
-                                                                                        'to 1.0).'},
-                                                            'roughness': {'type': 'number',
-                                                                          'minimum': 0.0,
-                                                                          'maximum': 1.0,
-                                                                          'description': 'Roughness value '
-                                                                                         '(0.0 to 1.0).'},
-                                                            'ior': {'type': 'number',
-                                                                    'description': 'Index of Refraction '
-                                                                                   '(IOR) for dielectric '
-                                                                                   'reflection and '
-                                                                                   'transmission (e.g. 1.45 '
-                                                                                   'for plastics, 1.5 for '
-                                                                                   'glass, 1.33 for water).'},
-                                                            'coat': {'type': 'number',
-                                                                     'minimum': 0.0,
-                                                                     'maximum': 1.0,
-                                                                     'description': 'Coat layer weight (0.0 '
-                                                                                    'to 1.0) for clear coat '
-                                                                                    'on car paint, lacquer, '
-                                                                                    'or varnished '
-                                                                                    'materials.'},
-                                                            'coat_roughness': {'type': 'number',
-                                                                               'minimum': 0.0,
-                                                                               'maximum': 1.0,
-                                                                               'description': 'Coat '
-                                                                                              'roughness '
-                                                                                              '(0.0 to '
-                                                                                              '1.0).'},
-                                                            'sheen': {'type': 'number',
-                                                                      'minimum': 0.0,
-                                                                      'maximum': 1.0,
-                                                                      'description': 'Sheen layer weight '
-                                                                                     '(0.0 to 1.0) for '
-                                                                                     'cloth, velvet, or '
-                                                                                     'peach fuzz.'},
-                                                            'subsurface': {'type': 'number',
-                                                                           'minimum': 0.0,
-                                                                           'maximum': 1.0,
-                                                                           'description': 'Subsurface '
-                                                                                          'scattering weight '
-                                                                                          '(0.0 to 1.0) for '
-                                                                                          'skin, marble, '
-                                                                                          'wax, or milk.'},
-                                                            'thin_film': {'type': 'number',
-                                                                          'description': 'Thin film '
-                                                                                         'thickness in '
-                                                                                         'nanometers for '
-                                                                                         'iridescent soap '
-                                                                                         'bubbles or oil '
-                                                                                         'slicks (e.g. 400.0 '
-                                                                                         '- 600.0).'},
-                                                            'emission_color': {'description': 'Emission '
-                                                                                              'color: hex or '
-                                                                                              '[r, g, b].'},
-                                                            'emission_strength': {'type': 'number',
-                                                                                  'description': 'Emission '
-                                                                                                 'intensity.'},
-                                                            'transmission': {'type': 'number',
-                                                                             'minimum': 0.0,
-                                                                             'maximum': 1.0,
-                                                                             'description': 'Transmission / '
-                                                                                            'glass weight '
-                                                                                            '(0.0 to 1.0).'},
-                                                            'alpha': {'type': 'number',
-                                                                      'minimum': 0.0,
-                                                                      'maximum': 1.0,
-                                                                      'description': 'Alpha transparency '
-                                                                                     '(0.0 to 1.0).'}}}},
- 'blender_setup_scene': {'name': 'blender_setup_scene',
-                         'description': 'Configure camera (target look-at, focal length), lighting (type, '
-                                        'power, color), render engine (EEVEE Next, Cycles), resolution, and '
-                                        'world background.',
-                         'inputSchema': {'type': 'object',
-                                         'properties': {'camera': {'type': 'object',
-                                                                   'properties': {'location': {'type': 'array',
-                                                                                               'items': {'type': 'number'},
-                                                                                               'minItems': 3,
-                                                                                               'maxItems': 3},
-                                                                                  'look_at': {'description': 'Target '
-                                                                                                             'point '
-                                                                                                             '[x, '
-                                                                                                             'y, '
-                                                                                                             'z] '
-                                                                                                             'or '
-                                                                                                             'target '
-                                                                                                             'object '
-                                                                                                             'name '
-                                                                                                             'string '
-                                                                                                             'to '
-                                                                                                             'point '
-                                                                                                             'camera '
-                                                                                                             'at.'},
-                                                                                  'focal_length': {'type': 'number',
-                                                                                                   'description': 'Lens '
-                                                                                                                  'focal '
-                                                                                                                  'length '
-                                                                                                                  'in '
-                                                                                                                  'mm '
-                                                                                                                  '(e.g. '
-                                                                                                                  '50.0, '
-                                                                                                                  '35.0, '
-                                                                                                                  '85.0).'}}},
-                                                        'light': {'type': 'object',
-                                                                  'properties': {'name': {'type': 'string',
-                                                                                          'default': 'KeyLight'},
-                                                                                 'type': {'type': 'string',
-                                                                                          'enum': ['POINT',
-                                                                                                   'SUN',
-                                                                                                   'SPOT',
-                                                                                                   'AREA'],
-                                                                                          'default': 'POINT'},
-                                                                                 'location': {'type': 'array',
-                                                                                              'items': {'type': 'number'},
-                                                                                              'minItems': 3,
-                                                                                              'maxItems': 3},
-                                                                                 'energy': {'type': 'number',
-                                                                                            'description': 'Light '
-                                                                                                           'power '
-                                                                                                           '/ '
-                                                                                                           'energy '
-                                                                                                           'in '
-                                                                                                           'Watts.'},
-                                                                                 'color': {'type': 'array',
-                                                                                           'items': {'type': 'number'},
-                                                                                           'minItems': 3,
-                                                                                           'maxItems': 3}}},
-                                                        'render_engine': {'type': 'string',
-                                                                          'description': 'Render engine '
-                                                                                         'identifier. Live '
-                                                                                         'enum: '
-                                                                                         "blender_describe(target='render_engines'). "
-                                                                                         'Only engines '
-                                                                                         'registered in this '
-                                                                                         'session are '
-                                                                                         'accepted.'},
-                                                        'resolution': {'type': 'array',
-                                                                       'items': {'type': 'integer'},
-                                                                       'minItems': 2,
-                                                                       'maxItems': 2,
-                                                                       'description': 'Render resolution '
-                                                                                      '[width, height].'},
-                                                        'samples': {'type': 'integer',
-                                                                    'description': 'Render sampling count.'},
-                                                        'world_color': {'type': 'array',
-                                                                        'items': {'type': 'number'},
-                                                                        'minItems': 3,
-                                                                        'maxItems': 3,
-                                                                        'description': 'World environment '
-                                                                                       'background color [r, '
-                                                                                       'g, b].'}}}},
  'blender_manage_nodes': {'name': 'blender_manage_nodes',
                           'description': 'Unified Node Graph DAG tool for Blender: search, inspect, query, '
                                          'build, and wire Shader Nodes (materials, world, lights, line '
@@ -663,51 +366,17 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                          'description': 'Whether to '
                                                                                         'automatically push '
                                                                                         'an undo step prior '
-                                                                                        'to execution.'}}}},
- 'blender_undo': {'name': 'blender_undo',
-                  'description': 'Undo the last operation in Blender.',
-                  'inputSchema': {'type': 'object', 'properties': {}}}}
+                                                                                        'to execution.'}}}}}
 
 
-
-# Tool surface profiles. "core" is the orthogonal adaptive set; "full" also
-# exposes compatibility wrappers that duplicate blender_run_operator/blender_set.
-CORE = ("core", "full")
-FULL = ("full",)
-
-PROFILES = {
-    "blender_inspect": CORE,
-    "blender_capture": CORE,
-    "blender_manage_modifier": CORE,
-    "blender_manage_nodes": CORE,
-    "blender_manage_material": CORE,
-    "blender_transform_object": CORE,
-    "blender_execute_script": CORE,
-    "blender_setup_scene": FULL,
-    "blender_undo": FULL,
-}
-
-# Deprecated compatibility wrappers and their adaptive replacements.
-DEPRECATED = {
-    "blender_setup_scene": (
-        "blender_transform_object",
-        "blender_set",
-        "blender_run_operator",
-    ),
-    "blender_undo": ("blender_run_operator",),
-}
 
 # MCP safety hints per tool.
 ANNOTATIONS = {
     "blender_inspect": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     "blender_capture": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    "blender_transform_object": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
     "blender_manage_modifier": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
-    "blender_manage_material": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
-    "blender_setup_scene": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
     "blender_manage_nodes": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
     "blender_execute_script": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
-    "blender_undo": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
 }
 
 
@@ -726,26 +395,6 @@ def _live(schema, name):
             prop = bpy.types.View3DShading.bl_rna.properties.get("type")
             if prop is not None:
                 props["shading_type"]["enum"] = [i.identifier for i in prop.enum_items]
-
-        elif name == "blender_transform_object":
-            import bpy
-            fn = bpy.ops.object.origin_set
-            prop = fn.get_rna_type().properties.get("type")
-            values = [i.identifier for i in prop.enum_items] if prop else []
-            # The tool also exposes semantic convenience values.
-            for extra in ("GEOMETRY", "BOTTOM", "CURSOR", "CENTER_OF_MASS", "CENTER_OF_VOLUME"):
-                if extra not in values:
-                    values.append(extra)
-            props["origin_to"]["enum"] = values
-            props.setdefault(
-                "look_at",
-                {
-                    "description": (
-                        "Point the object at a world position [x, y, z] or an object name "
-                        "(camera/look-at convenience)."
-                    ),
-                },
-            )
 
         elif name == "blender_manage_modifier":
             from .. import catalogs
@@ -766,17 +415,6 @@ def _live(schema, name):
                 },
             )
 
-        elif name == "blender_setup_scene":
-            from .. import catalogs
-            import bpy
-            props["render_engine"]["enum"] = [
-                item["identifier"] for item in catalogs.render_engines()["engines"]
-            ]
-            prop = bpy.types.Light.bl_rna.properties.get("type")
-            if prop is not None:
-                props["light"]["properties"]["type"]["enum"] = [
-                    i.identifier for i in prop.enum_items
-                ]
     except Exception:
         # Introspection is best effort; the literal schema remains a fallback.
         pass
@@ -795,7 +433,4 @@ def register_tool(register_fn, name, handler):
         description=TOOLS[name]["description"],
         input_schema=lambda: input_schema(name),
         annotations=ANNOTATIONS.get(name, {}),
-        profiles=PROFILES.get(name, CORE),
-        deprecated=name in DEPRECATED,
-        replaced_by=DEPRECATED.get(name),
     )

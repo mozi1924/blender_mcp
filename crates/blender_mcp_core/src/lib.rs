@@ -5,20 +5,10 @@ pub mod tools;
 use pyo3::prelude::*;
 
 #[pyfunction]
-#[pyo3(signature = (host = None, port = None, profile = None))]
-fn start_server(
-    py: Python<'_>,
-    host: Option<&str>,
-    port: Option<u16>,
-    profile: Option<&str>,
-) -> PyResult<bool> {
+#[pyo3(signature = (host = None, port = None))]
+fn start_server(py: Python<'_>, host: Option<&str>, port: Option<u16>) -> PyResult<bool> {
     let host = host.unwrap_or("127.0.0.1");
     let port = port.unwrap_or(8765);
-
-    if let Some(profile) = profile {
-        tools::runtime::set_profile(py, profile)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-    }
 
     // Build the live Python tool catalog before accepting requests.  This is
     // the single source of truth for tools/list and tools/call.
@@ -57,13 +47,6 @@ fn poll_tick(py: Python<'_>, max_batch: usize) -> PyResult<usize> {
 }
 
 #[pyfunction]
-fn set_tool_profile(py: Python<'_>, profile: &str) -> PyResult<bool> {
-    tools::runtime::set_profile(py, profile).map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-    tools::refresh_tool_definitions(py).map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
-    Ok(true)
-}
-
-#[pyfunction]
 fn get_tools(py: Python<'_>) -> PyResult<String> {
     if tools::get_tool_definitions().is_empty() {
         tools::refresh_tool_definitions(py).map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
@@ -80,6 +63,5 @@ fn blender_mcp_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_running, m)?)?;
     m.add_function(wrap_pyfunction!(poll_tick, m)?)?;
     m.add_function(wrap_pyfunction!(get_tools, m)?)?;
-    m.add_function(wrap_pyfunction!(set_tool_profile, m)?)?;
     Ok(())
 }

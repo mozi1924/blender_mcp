@@ -6,30 +6,20 @@ from . import schemas  # noqa: F401
 from . import set_property  # noqa: F401
 from . import inspect  # noqa: F401
 from . import capture  # noqa: F401
-from . import transform  # noqa: F401
 from . import modifier  # noqa: F401
-from . import material  # noqa: F401
-from . import scene_setup  # noqa: F401
 from . import nodes  # noqa: F401
 from . import script  # noqa: F401
-from . import undo  # noqa: F401
 from . import describe  # noqa: F401
 from . import operator  # noqa: F401
-from . import primitive  # noqa: F401
 
 __all__ = [
     "schemas",
     "set_property",
     "inspect",
     "capture",
-    "transform",
     "modifier",
-    "material",
-    "scene_setup",
     "nodes",
     "script",
-    "undo",
     "describe",
     "operator",
-    "primitive",
 ]

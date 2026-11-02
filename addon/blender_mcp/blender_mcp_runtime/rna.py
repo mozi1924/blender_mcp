@@ -18,6 +18,8 @@ import difflib
 import math
 import os
 
+from mathutils import Quaternion
+
 # RNA uses +-FLT_MAX style sentinels for "unbounded".  Do not advertise those as
 # useful JSON-Schema bounds.
 _SENTINEL = 1e29
@@ -652,6 +654,77 @@ def operator_property_table(path):
     return _operator_schema_table(fn.get_rna_type())
 
 
+def move_to_collection(obj, collection_name):
+    """Move an object into a collection, creating the collection if needed."""
+    collection = bpy.data.collections.get(collection_name)
+    if collection is None:
+        collection = bpy.data.collections.new(collection_name)
+        bpy.context.scene.collection.children.link(collection)
+    if obj.name not in collection.objects:
+        collection.objects.link(obj)
+    for owner in list(obj.users_collection):
+        if owner != collection:
+            owner.objects.unlink(obj)
+    return collection.name
+
+
+def object_summary(obj):
+    """Compact object report shared by run_operator and primitive creation."""
+    if obj is None:
+        return None
+    if obj.rotation_mode == "QUATERNION":
+        euler = obj.rotation_quaternion.to_euler()
+    elif obj.rotation_mode == "AXIS_ANGLE":
+        quat = Quaternion(obj.rotation_axis_angle[1:], obj.rotation_axis_angle[0])
+        euler = quat.to_euler()
+    else:
+        euler = obj.rotation_euler
+    return {
+        "name": obj.name,
+        "type": obj.type,
+        "location": [round(value, 4) for value in obj.location],
+        "rotation_euler_deg": [round(math.degrees(value), 2) for value in euler],
+        "scale": [round(value, 4) for value in obj.scale],
+        "dimensions": [round(value, 4) for value in obj.dimensions],
+        "collection": obj.users_collection[0].name if obj.users_collection else None,
+    }
+
+
+def _apply_post_properties(obj, values):
+    """Apply post-creation properties to an object or its data."""
+    applied, warnings, unresolved = {}, [], []
+    remaining = dict(values or {})
+
+    if "text" in remaining or "body" in remaining:
+        body = remaining.pop("text", remaining.pop("body", None))
+        if hasattr(obj.data, "body"):
+            obj.data.body = str(body)
+            applied["body"] = str(body)
+        else:
+            warnings.append("Parameter 'text'/'body' ignored: object has no text body")
+
+    object_props, data_props = {}, {}
+    for key, value in list(remaining.items()):
+        if find_property(obj, key)[0] is not None:
+            object_props[key] = remaining.pop(key)
+        elif obj.data is not None and find_property(obj.data, key)[0] is not None:
+            data_props[key] = remaining.pop(key)
+
+    if object_props:
+        result = apply_properties(obj, object_props)
+        applied.update(result.get("applied", {}))
+        warnings.extend(result.get("warnings", []))
+        warnings.extend(result.get("errors", []))
+    if data_props:
+        result = apply_properties(obj.data, data_props)
+        applied.update(result.get("applied", {}))
+        warnings.extend(result.get("warnings", []))
+        warnings.extend(result.get("errors", []))
+
+    unresolved = sorted(remaining.keys())
+    return applied, warnings, unresolved
+
+
 def run_operator(
     path,
     parameters=None,
@@ -660,10 +733,22 @@ def run_operator(
     select=None,
     active=None,
     context=None,
+    name=None,
+    collection=None,
+    properties=None,
+    location=None,
+    rotation=None,
+    scale=None,
 ) -> dict:
-    """Invoke any Blender operator with RNA validation and rich diagnostics."""
+    """Invoke any Blender operator with RNA validation and post-processing.
+
+    ``name``/``collection``/``properties`` apply to the created object, which
+    makes this tool a superset of the old primitive wrapper.  ``location``,
+    ``rotation`` (degrees) and ``scale`` are merged into operator parameters
+    when supported, otherwise applied to the created object afterwards.
+    """
     parameters = dict(parameters or {})
-    module, name, fn = find_operator_function(path)
+    module, op_name, fn = find_operator_function(path)
     rt = fn.get_rna_type()
     table = _operator_schema_table(rt)
 
@@ -673,6 +758,21 @@ def run_operator(
         poll = bool(fn.poll())
     except Exception as ex:
         poll_error = str(ex)
+
+    deferred = {}
+    for key, value in (("location", location), ("rotation", rotation), ("scale", scale)):
+        if value is None:
+            continue
+        if key == "rotation":
+            value = [math.radians(float(item)) for item in value]
+        # Creation operators interpret `scale` by scaling mesh data; the tool's
+        # convenience contract is object scale, so always apply it post-hoc.
+        if key == "scale":
+            deferred[key] = value
+        elif key in table:
+            parameters[key] = value
+        else:
+            deferred[key] = value
 
     warnings, unknown = [], []
     kwargs = {}
@@ -690,7 +790,7 @@ def run_operator(
         except Exception as ex:
             return {
                 "status": "error",
-                "operator": f"{module}.{name}",
+                "operator": f"{module}.{op_name}",
                 "message": f"Invalid value for '{identifier}': {ex}",
                 "unknown": unknown,
                 "warnings": warnings,
@@ -699,7 +799,7 @@ def run_operator(
     if unknown:
         return {
             "status": "error",
-            "operator": f"{module}.{name}",
+            "operator": f"{module}.{op_name}",
             "message": "Operator call rejected because of unknown parameters.",
             "unknown": unknown,
             "warnings": warnings,
@@ -709,7 +809,7 @@ def run_operator(
     if poll is False:
         return {
             "status": "error",
-            "operator": f"{module}.{name}",
+            "operator": f"{module}.{op_name}",
             "message": (
                 "Operator poll() returned False: the current Blender context does not "
                 "allow it. Select the right object/mode or use blender_execute_script "
@@ -722,7 +822,7 @@ def run_operator(
     # Optional target selection (helps operators that act on the active object).
     if select or active:
         try:
-            names = select if isinstance(select, (list, tuple)) else [select]
+            names = [] if select is None else (select if isinstance(select, (list, tuple)) else [select])
             for obj in bpy.context.view_layer.objects:
                 obj.select_set(False)
             for obj_name in names:
@@ -735,7 +835,7 @@ def run_operator(
 
     if undo:
         try:
-            bpy.ops.ed.undo_push(message=f"MCP {module}.{name}")
+            bpy.ops.ed.undo_push(message=f"MCP {module}.{op_name}")
         except Exception:
             pass
 
@@ -752,7 +852,7 @@ def run_operator(
 
         return {
             "status": "error",
-            "operator": f"{module}.{name}",
+            "operator": f"{module}.{op_name}",
             "message": f"Operator raised: {ex}",
             "traceback": traceback.format_exc(),
             "parameters": {k: jsonable(v) for k, v in kwargs.items()},
@@ -762,16 +862,42 @@ def run_operator(
     created = sorted(set(bpy.data.objects.keys()) - before_objects)
     result_set = sorted(str(item) for item in result) if result is not None else []
     active_obj = bpy.context.view_layer.objects.active
+    created_obj = bpy.data.objects.get(created[0]) if created else active_obj
 
-    return {
+    if name and created_obj is not None:
+        created_obj.name = str(name)
+    if collection and created_obj is not None:
+        try:
+            move_to_collection(created_obj, str(collection))
+        except Exception as ex:
+            warnings.append(f"Could not move object to collection '{collection}': {ex}")
+
+    post_applied, post_warnings, unresolved = _apply_post_properties(
+        created_obj, {**deferred, **(properties or {})}
+    ) if created_obj is not None else ({}, [], sorted((properties or {}).keys()) + sorted(deferred.keys()))
+    warnings.extend(post_warnings)
+
+    response = {
         "status": "ok",
-        "operator": f"{module}.{name}",
+        "operator": f"{module}.{op_name}",
         "result": result_set,
         "parameters": {k: jsonable(v) for k, v in kwargs.items()},
         "created_objects": created,
         "active_object": active_obj.name if active_obj else None,
+        "created_object": object_summary(created_obj),
+        "post_properties": post_applied,
         "warnings": warnings,
     }
+
+    if unresolved:
+        response["status"] = "error"
+        response["message"] = (
+            f"Operator ran, but these post properties were not found on the created "
+            f"object or its data: {unresolved}."
+        )
+        response["unresolved_properties"] = unresolved
+
+    return response
 
 
 def _build_context_override(context):
@@ -886,7 +1012,7 @@ def resolve_path_with_leaf(root, path):
     return current, tokens[-1]
 
 
-def resolve_target(target):
+def resolve_target(target, create=False):
     """Resolve a root target expression.
 
     Examples:
@@ -907,7 +1033,11 @@ def resolve_target(target):
     if key in ("render", "scene.render"):
         return bpy.context.scene.render
     if key in ("world", "scene.world"):
-        return bpy.context.scene.world
+        world = bpy.context.scene.world
+        if world is None and create:
+            world = bpy.data.worlds.new("World")
+            bpy.context.scene.world = world
+        return world
     if key in ("view_layer", "viewlayer"):
         return bpy.context.view_layer
 
@@ -950,7 +1080,23 @@ def resolve_target(target):
                 norm(collection_name.rstrip("s")),
                 norm(fixed_type.rstrip("s")),
             ):
-                return resolve_id(fixed_type, name)
+                try:
+                    return resolve_id(fixed_type, name)
+                except KeyError:
+                    if not create:
+                        raise
+                    collection = getattr(bpy.data, collection_name, None)
+                    if collection is None:
+                        raise
+                    try:
+                        if fixed_type == "Light":
+                            return collection.new(name=name, type="POINT")
+                        return collection.new(name=name)
+                    except TypeError as ex:
+                        raise ValueError(
+                            f"Cannot create {fixed_type} '{name}' generically: {ex}. "
+                            "Use blender_run_operator or blender_execute_script."
+                        )
 
         raise KeyError(
             f"Unknown target kind '{kind}'. Use scene, render, world, object:NAME, "

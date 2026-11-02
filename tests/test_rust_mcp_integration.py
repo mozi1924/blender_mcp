@@ -94,10 +94,9 @@ def run_tests():
     tool_names = [t["name"] for t in tools]
     print(f"   [OK] Found {len(tools)} tools: {', '.join(tool_names)}")
     expected_tools = [
-        "blender_inspect", "blender_capture", "blender_create_primitive",
-        "blender_transform_object", "blender_manage_modifier",
-        "blender_manage_material", "blender_setup_scene",
-        "blender_manage_nodes", "blender_execute_script", "blender_undo"
+        "blender_describe", "blender_inspect", "blender_run_operator",
+        "blender_set", "blender_manage_modifier", "blender_manage_nodes",
+        "blender_capture", "blender_execute_script",
     ]
     for exp in expected_tools:
         assert exp in tool_names, f"Expected tool {exp} missing!"
@@ -132,9 +131,9 @@ def run_tests():
     assert "build_hash" in file_data
     print(f"   [OK] blender_inspect (file): version={file_data['version_string']}, hash={file_data['build_hash'][:10]}")
 
-    # Test 4: blender_create_primitive
-    print("==> Test 4: blender_create_primitive")
-    create_res = run_rpc_with_main_loop(lambda: tool_call("blender_create_primitive", {
+    # Test 4: blender_run_operator primitive creation
+    print("==> Test 4: blender_run_operator (primitive_type)")
+    create_res = run_rpc_with_main_loop(lambda: tool_call("blender_run_operator", {
         "primitive_type": "cube",
         "name": "RustCube",
         "location": [2.0, 3.0, 4.0],
@@ -143,30 +142,50 @@ def run_tests():
     assert not create_res["result"]["isError"], f"Create primitive failed: {create_res}"
     cube_obj = bpy.data.objects.get("RustCube")
     assert cube_obj is not None, "RustCube should exist in bpy.data.objects!"
-    print("   [OK] Created RustCube at", list(cube_obj.location))
+    assert abs(cube_obj.scale[0] - 1.5) < 1e-4
+    print("   [OK] Created RustCube at", list(cube_obj.location), "scale", list(cube_obj.scale))
 
-    # Test 5: blender_transform_object (quaternion mode, fine-grained apply, origin_to)
-    print("==> Test 5: blender_transform_object")
-    trans_res = run_rpc_with_main_loop(lambda: tool_call("blender_transform_object", {
-        "name": "RustCube",
-        "location": [5.0, 5.0, 5.0],
-        "rotation": [45.0, 0.0, 0.0],
-        "mode": "absolute",
-        "apply_scale": True,
+    # Test 5: blender_set transforms + origin + transform_apply
+    print("==> Test 5: blender_set transforms")
+    set_loc = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "object:RustCube",
+        "path": "location",
+        "value": [5.0, 5.0, 5.0]
+    }))
+    assert not set_loc["result"]["isError"], f"Set location failed: {set_loc}"
+    set_rot = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "object:RustCube",
+        "path": "rotation",
+        "value": [45.0, 0.0, 0.0]
+    }))
+    assert not set_rot["result"]["isError"], f"Set rotation failed: {set_rot}"
+    set_origin = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "object:RustCube",
         "origin_to": "BOTTOM"
     }))
-    assert not trans_res["result"]["isError"], f"Transform failed: {trans_res}"
+    assert not set_origin["result"]["isError"], f"Set origin failed: {set_origin}"
+    apply_scale = run_rpc_with_main_loop(lambda: tool_call("blender_run_operator", {
+        "operator": "object.transform_apply",
+        "parameters": {"scale": True},
+        "active": "RustCube"
+    }))
+    assert not apply_scale["result"]["isError"], f"Apply scale failed: {apply_scale}"
     assert abs(cube_obj.location[0] - 5.0) < 0.001
-    print("   [OK] Transformed RustCube location, applied scale, and set origin_to BOTTOM")
+    print("   [OK] Set location/rotation, origin_to BOTTOM, applied scale")
 
-    # Test 5b: transform with QUATERNION rotation_mode
+    # Test 5b: rotation convenience adapts to QUATERNION rotation_mode
     cube_obj.rotation_mode = 'QUATERNION'
-    trans_quat_res = run_rpc_with_main_loop(lambda: tool_call("blender_transform_object", {
-        "name": "RustCube",
-        "rotation": [0.0, 90.0, 0.0]
+    trans_quat_res = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "object:RustCube",
+        "path": "rotation",
+        "value": [0.0, 90.0, 0.0]
     }))
     assert not trans_quat_res["result"]["isError"], f"Quaternion transform failed: {trans_quat_res}"
-    t_data = json.loads(trans_quat_res["result"]["content"][0]["text"])
+    insp_quat = run_rpc_with_main_loop(lambda: tool_call("blender_inspect", {
+        "target": "object",
+        "name": "RustCube"
+    }))
+    t_data = json.loads(insp_quat["result"]["content"][0]["text"])
     assert t_data["rotation_mode"] == "QUATERNION"
     assert abs(t_data["rotation_euler_deg"][1] - 90.0) < 1.0
     print("   [OK] Successfully adapted to QUATERNION rotation_mode on RustCube")
@@ -220,53 +239,64 @@ def run_tests():
     assert any(m["name"] == "FastBoolean" for m in insp_mods["modifiers"])
     print(f"   [OK] Inspected RustCube modifier stack: {insp_mods['modifiers_count']} active modifiers")
 
-    # Test 7: blender_manage_material (Principled BSDF v2 OpenPBR + multi-slot)
-    print("==> Test 7: blender_manage_material (OpenPBR v2 + multi-slot)")
-    mat_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_material", {
-        "object_name": "RustCube",
-        "action": "create_and_assign",
-        "material_name": "MetallicBlue",
-        "base_color": "#0088FF",
-        "metallic": 0.9,
-        "roughness": 0.1,
-        "ior": 1.45,
-        "coat": 0.8,
-        "coat_roughness": 0.05,
-        "thin_film": 500.0
+    # Test 7: blender_set material creation/assignment + Principled sockets
+    print("==> Test 7: blender_set materials (OpenPBR + multi-slot)")
+    create_mat = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "material:MetallicBlue",
+        "create": True,
+        "properties": {"use_nodes": True}
     }))
-    assert not mat_res["result"]["isError"], f"Material assign failed: {mat_res}"
-    mat_out = json.loads(mat_res["result"]["content"][0]["text"])
-    assert mat_out["status"] == "ok"
-    assert "Coat Weight" in mat_out["updated_sockets"]
-    print("   [OK] Created & assigned MetallicBlue with OpenPBR v2 sockets:", mat_out["updated_sockets"])
+    assert not create_mat["result"]["isError"], f"Material create failed: {create_mat}"
+    mat = bpy.data.materials["MetallicBlue"]
+    bsdf = next(node for node in mat.node_tree.nodes if node.type == "BSDF_PRINCIPLED")
 
-    # 7b. Add a second material slot using slot_index: "new"
-    mat_slot2 = run_rpc_with_main_loop(lambda: tool_call("blender_manage_material", {
-        "object_name": "RustCube",
-        "action": "create_and_assign",
-        "material_name": "ClearGlass",
-        "slot_index": "new",
-        "transmission": 1.0,
-        "roughness": 0.0,
-        "ior": 1.5
+    assign_mat = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "object:RustCube",
+        "path": "data.materials",
+        "value": "MetallicBlue",
+        "mode": "append"
     }))
-    assert not mat_slot2["result"]["isError"]
+    assert not assign_mat["result"]["isError"], f"Material assign failed: {assign_mat}"
+
+    for socket_name, socket_value in [
+        ("Base Color", "#0088FF"),
+        ("Metallic", 0.9),
+        ("Roughness", 0.1),
+        ("IOR", 1.45),
+        ("Coat Weight", 0.8),
+        ("Coat Roughness", 0.05),
+        ("Thin Film Thickness", 500.0),
+    ]:
+        res = run_rpc_with_main_loop(lambda n=socket_name, v=socket_value: tool_call("blender_set", {
+            "target": "material:MetallicBlue",
+            "path": f"node_tree.nodes[{bsdf.name}].inputs[{n}].default_value",
+            "value": v
+        }))
+        assert not res["result"]["isError"], f"Set socket {socket_name} failed: {res}"
+    print("   [OK] Created & assigned MetallicBlue with OpenPBR v2 sockets")
+
+    # 7b. Add a second material slot
+    create_glass = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "material:ClearGlass",
+        "create": True,
+        "properties": {"use_nodes": True}
+    }))
+    assert not create_glass["result"]["isError"], f"Glass create failed: {create_glass}"
+    assign_glass = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "object:RustCube",
+        "path": "data.materials",
+        "value": "ClearGlass",
+        "mode": "append"
+    }))
+    assert not assign_glass["result"]["isError"]
     assert len(cube_obj.material_slots) == 2
     assert cube_obj.material_slots[1].material.name == "ClearGlass"
-    print("   [OK] Added second material slot with ClearGlass (slot_index: 'new')")
+    print("   [OK] Added second material slot with ClearGlass")
 
-    # 7c. Inspect materials on object
-    mat_insp = run_rpc_with_main_loop(lambda: tool_call("blender_manage_material", {
-        "object_name": "RustCube",
-        "action": "inspect"
-    }))
-    assert not mat_insp["result"]["isError"]
-    insp_mat_data = json.loads(mat_insp["result"]["content"][0]["text"])
-    assert insp_mat_data["status"] == "ok"
-    assert len(insp_mat_data["material_slots"]) == 2
-    pbr_slot0 = insp_mat_data["material_slots"][0]["principled_pbr"]
-    assert "Coat Weight" in pbr_slot0 and pbr_slot0["Coat Weight"] == 0.8
-    print("   [OK] Inspected material slots on RustCube: verified PBR Coat Weight 0.8 and IOR 1.45")
+    # 7c. Verify PBR values directly via RNA
+    assert abs(bsdf.inputs["Coat Weight"].default_value - 0.8) < 1e-4
+    assert abs(bsdf.inputs["IOR"].default_value - 1.45) < 1e-4
+    print("   [OK] Verified PBR Coat Weight 0.8 and IOR 1.45")
 
     # 7d. Deep object inspection via blender_inspect for Mesh, Camera, and Light
     print("==> Test 7d: blender_inspect (deep object inspection)")
@@ -418,17 +448,43 @@ def run_tests():
     assert ls_data["status"] == "ok"
     print(f"   [OK] LineStyle tree initialized & inspected: {ls_data['nodes_count']} nodes")
 
-    # Test 8: blender_setup_scene
-    print("==> Test 8: blender_setup_scene")
-    setup_res = run_rpc_with_main_loop(lambda: tool_call("blender_setup_scene", {
-        "camera": {"location": [10.0, -10.0, 8.0], "look_at": "RustCube", "focal_length": 50.0},
-        "light": {"name": "SunLight", "type": "SUN", "energy": 5.0},
-        "render_engine": "BLENDER_EEVEE_NEXT",
-        "resolution": [640, 480]
+    # Test 8: scene configuration via blender_set + blender_run_operator
+    print("==> Test 8: scene setup via blender_set/run_operator")
+    camera_obj = bpy.data.objects.get("Camera")
+    if camera_obj is not None:
+        for args in (
+            {"target": "object:Camera", "properties": {"location": [10.0, -10.0, 8.0]}},
+            {"target": "object:Camera", "path": "data.lens", "value": 50.0},
+            {"target": "object:Camera", "path": "look_at", "value": "RustCube"},
+        ):
+            res = run_rpc_with_main_loop(lambda a=args: tool_call("blender_set", a))
+            assert not res["result"]["isError"], f"Camera setup failed: {res}"
+
+    add_light = run_rpc_with_main_loop(lambda: tool_call("blender_run_operator", {
+        "operator": "object.light_add",
+        "parameters": {"type": "SUN"},
+        "name": "SunLight",
+        "properties": {"energy": 5.0}
     }))
-    assert not setup_res["result"]["isError"], f"Setup scene failed: {setup_res}"
+    assert not add_light["result"]["isError"], f"Light setup failed: {add_light}"
+
+    render_res = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "scene.render",
+        "properties": {
+            "engine": "BLENDER_EEVEE",
+            "resolution_x": 640,
+            "resolution_y": 480,
+        }
+    }))
+    assert not render_res["result"]["isError"], f"Render setup failed: {render_res}"
+    samples_res = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
+        "target": "scene",
+        "path": "eevee",
+        "properties": {"taa_render_samples": 16}
+    }))
+    assert not samples_res["result"]["isError"], f"Sample setup failed: {samples_res}"
     assert bpy.context.scene.render.resolution_x == 640
-    assert bpy.context.scene.render.engine in ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT")
+    assert bpy.context.scene.render.engine == "BLENDER_EEVEE"
     print(f"   [OK] Configured camera look_at, SunLight, {bpy.context.scene.render.engine}, and 640x480 resolution")
 
     # Test 9: blender_capture
@@ -478,9 +534,12 @@ print(f"Pre-injected test: dot={dot_prod}, pi={round(rad, 4)}")
     assert abs(exec_data["result"]["cube_loc"][0] - 5.0) < 0.01
     print(f"   [OK] Script executed successfully with pre-injected Vector, Matrix, radians, C, D in {exec_data['duration_ms']} ms")
 
-    # Test 11: blender_undo
-    print("==> Test 11: blender_undo")
-    undo_res = run_rpc_with_main_loop(lambda: tool_call("blender_undo", {}))
+    # Test 11: undo via run_operator
+    print("==> Test 11: blender_run_operator (ed.undo)")
+    undo_res = run_rpc_with_main_loop(lambda: tool_call("blender_run_operator", {
+        "operator": "ed.undo",
+        "undo": False
+    }))
     assert not undo_res["result"]["isError"], f"Undo failed: {undo_res}"
     print("   [OK] Undo performed cleanly")
 
