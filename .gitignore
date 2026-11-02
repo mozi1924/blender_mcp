@@ -1,8 +1,27 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
 *.egg-info/
 .venv/
 build/
-*.mcpb
+
+# Rust build artifacts & binaries
 target/
 dist/
-addon/blender_mcp/*.so
+*.so
+*.dylib
+*.dll
+*.pyd
+*.rlib
+*.a
+*.zip
+*.tar.gz
+*.whl
+
+# macOS
+.DS_Store
+
+# Temporary / testing
+.env
+*.mcpb

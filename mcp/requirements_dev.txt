@@ -1,6 +1,0 @@
-# Development.
-autopep8
-mypy
-pylint
-types-PyYAML
-vulture

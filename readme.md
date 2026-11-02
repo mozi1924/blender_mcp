@@ -1,83 +1,73 @@
-# Blender MCP
+# Blender MCP (Rust)
 
-## Overview
+A high-performance, embedded MCP (Model Context Protocol) server for Blender 5.x, written in **Rust** with **PyO3** bindings.
 
-A lightweight MCP (Model Context Protocol) server for Blender.
-It offers a natural language interface with Blender's Python API,
-improving access to documentation, and allowing users to explore
-and understand complex setups.
+Instead of running an external Python virtual environment with fragile multi-process socket bridges, **Blender MCP (Rust)** consolidates everything into a **single native Blender extension (736 KB)**. It provides an embedded Tokio async runtime with Streamable HTTP & SSE MCP services, alongside 9 agent-centric semantic 3D modeling and inspection tools.
 
-Read the documentation at [blender.org/lab/mcp-server](https://www.blender.org/lab/mcp-server/)
+---
 
-----
+## ⚡ Features
 
-The project is deliberately small, maintainable, and does no more than
-necessary. It has two components that communicate over a TCP socket:
+- **Single Addon Architecture**: Native Rust cdylib (`blender_mcp_core.so`) loaded directly by Blender's embedded Python via PyO3 (`abi3-py310`). Zero external `uv` / `pip` setup required.
+- **Thread-Safe Command Dispatch**: Tokio handles high-concurrency async HTTP/SSE requests in a background OS thread; tasks are dispatched safely to Blender's main thread via lock-free channels with GIL synchronization.
+- **Streamable HTTP & SSE Protocol**: Conforms to standard Model Context Protocol (JSON-RPC 2.0). Connect directly via `http://localhost:8765/mcp`.
+- **9 High-Leverage Semantic Tools**:
+  1. `blender_inspect`: Unified scene hierarchy, deep object info, file status, and datablock inspection.
+  2. `blender_capture`: Multi-modal visual perception (viewport / camera rendering directly returning Base64 PNG image content for vision LLMs).
+  3. `blender_create_primitive`: Parameter-driven primitive creation (cube, sphere, cylinder, cone, torus, plane, curve, text, empty, camera, light) with auto-naming, transform, and collection linking.
+  4. `blender_transform_object`: Precise translation, rotation (degrees), and scaling in absolute or relative mode, with auto-apply transforms.
+  5. `blender_manage_modifier`: Non-destructive modifier stack management (Subsurf, Bevel, Boolean, Mirror, Array, Solidify, Remesh, Decimate).
+  6. `blender_manage_material`: Instant Principled BSDF creation and attribute tweaking (color, metallic, roughness, emission, transmission).
+  7. `blender_setup_scene`: Auto camera look-at tracking, light placement, and modern render engines (**BLENDER_EEVEE_NEXT** / Cycles).
+  8. `blender_execute_script`: Procedural Python script execution with **automatic Undo step safety** (`bpy.ops.ed.undo_push`), timing, and stdout/stderr capture.
+  9. `blender_undo`: One-click undo for instant recovery.
 
-- A **Blender add-on** that runs inside Blender and executes requests.
-- An **MCP server** that runs as a separate process, launched by the
-  MCP client (e.g. [Llama.cpp](https://projects.blender.org/lab/blender_mcp/wiki/Llama.cpp)).
+---
 
-The data flow is:
+## 🛠️ Build & Installation
+
+### Prerequisites
+- Blender 5.1+ / 5.2+ LTS
+- Rust 1.80+ (with Cargo)
+
+### Build
+```bash
+# Build release cdylib and copy into addon/blender_mcp/
+make build
+
+# Run automated integration test suite in headless Blender
+make test
+
+# Package Blender extension zip into dist/
+make extension
 ```
-MCP Client  ⇐ MCP/stdio ⇒  blender-mcp  ⇐ TCP socket ⇒  Blender Add-on
+
+### Development Symlink
+To develop and test live inside Blender without reinstalling:
+```bash
+ln -s "$(pwd)/addon/blender_mcp" "$HOME/Library/Application Support/Blender/5.2/extensions/user_default/blender_mcp_rust"
+```
+Then enable **Blender MCP (Rust)** in Blender Preferences -> Add-ons / Extensions.
+
+---
+
+## 🔌 Connecting with MCP Clients
+
+Add the following to your MCP client configuration (Claude Desktop, Cursor, Antigravity, etc.):
+
+```json
+{
+  "mcpServers": {
+    "blender": {
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
 ```
 
+Or connect via Server-Sent Events (SSE) at `http://127.0.0.1:8765/sse`.
 
-## Blender Add-on
+---
 
-Located in ``addon/blender_mcp_addon/``.
-
-A Blender extension that allows the MCP server to communicate with a
-running Blender instance. It must be installed and enabled for any of
-the MCP tools to work.
-
-The add-on provides a preferences panel for configuring the host, port,
-and an optional auto-start setting.
-
-### Functionality Overview
-
-Note that this is intended to be a fairly minimal add-on.
-
-Connectivity
-   - Auto-start (optional), is non-blocking any issues can be viewed from the preferences.
-   - Configurable polling intervals (active and idle rates) from preferences to avoid excessive overhead.
-   - Client timeout protection - stalled connections are evicted.
-   - Start/stop operators accessible from the preferences panel.
-   - Deferred responses are supported only by the interactive add-on server;
-     background mode requires requests to complete synchronously and rejects deferred results.
-
-
-
-
-## MCP Server
-
-Located in ``mcp/blmcp/``, installed as a Python package with the
-entry point ``blender-mcp``.
-
-An MCP client launches this process and communicates with it over
-stdio. The server connects to the add-on's TCP socket to relay
-requests to Blender.
-
-``mcp/blmcp/data/``
-   Data files bundled with the package.
-
-   - ``prompts.yml`` provides instructions sent to the LLM at
-     connection time.
-   - ``api/`` contains Blender Python API reference in RST format.
-   - ``manual/`` contains Blender user manual excerpts in RST format.
-
-``mcp/blmcp/tools/``
-   Each tool is a single module, auto-discovered at startup.
-   Modules ending in ``_toolcode`` contain code that runs inside
-   Blender (sent to the add-on for execution) and are skipped during
-   discovery.
-
-``mcp/blmcp/tools_helpers/``
-   Shared utilities used by tools. Tools should not import from each
-   other; shared logic lives here instead.
-
-
-### Tools
-
-See [readme_tools.rst](readme_tools.rst) for the tools the MCP server exposes.
+## 📄 License
+GPL-3.0-or-later. Original Python reference implementation preserved in the `official-reference` branch.
