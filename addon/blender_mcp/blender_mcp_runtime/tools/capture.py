@@ -22,7 +22,19 @@ def run_capture(args):
     custom_out = args.get("output_path")
     res = args.get("resolution", [800, 600])
 
-    scene = bpy.context.scene
+    scene_name = args.get("scene") or args.get("scene_name")
+    if scene_name:
+        scene = bpy.data.scenes.get(scene_name)
+        if not scene:
+            return {"status": "error", "message": f"Scene '{scene_name}' not found in bpy.data.scenes"}
+    else:
+        scene = bpy.context.scene
+
+    view_layer_name = args.get("view_layer") or args.get("layer")
+    if view_layer_name and hasattr(scene, "view_layers") and view_layer_name not in scene.view_layers:
+        valid_layers = [vl.name for vl in scene.view_layers]
+        return {"status": "error", "message": f"View layer '{view_layer_name}' not found in scene '{scene.name}'. Available: {valid_layers}"}
+
     orig_rx = scene.render.resolution_x
     orig_ry = scene.render.resolution_y
     orig_pct = scene.render.resolution_percentage
@@ -49,9 +61,16 @@ def run_capture(args):
                 scene.camera = cam_obj
 
         # Perform render or viewport capture
+        render_kwargs = {"write_still": True}
+        if scene != bpy.context.scene:
+            render_kwargs["scene"] = scene.name
+        if view_layer_name:
+            render_kwargs["layer"] = view_layer_name
+
         if bpy.app.background:
             # Background / headless mode always uses standard render engine
-            bpy.ops.render.render(write_still=True)
+            with bpy.context.temp_override(scene=scene):
+                bpy.ops.render.render(**render_kwargs)
         elif view == "viewport":
             # Interactive 3D viewport capture with context override
             area = next((a for a in bpy.context.screen.areas if a.type == 'VIEW_3D'), None) if bpy.context.screen else None
@@ -66,16 +85,18 @@ def run_capture(args):
                     except Exception:
                         pass
                 try:
-                    with bpy.context.temp_override(window=bpy.context.window, area=area, region=region):
+                    with bpy.context.temp_override(window=bpy.context.window, area=area, region=region, scene=scene):
                         bpy.ops.render.opengl(write_still=True, view_context=True)
                 finally:
                     if space and orig_shading:
                         space.shading.type = orig_shading
             else:
-                bpy.ops.render.opengl(write_still=True, view_context=False)
+                with bpy.context.temp_override(scene=scene):
+                    bpy.ops.render.opengl(write_still=True, view_context=False)
         else:
             # Standard camera render
-            bpy.ops.render.render(write_still=True)
+            with bpy.context.temp_override(scene=scene):
+                bpy.ops.render.render(**render_kwargs)
 
         if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
             return {"status": "error", "message": "Render failed to produce output image"}
@@ -96,17 +117,22 @@ def run_capture(args):
             "base64": b64_data,
             "filepath": target_path,
             "resolution": [scene.render.resolution_x, scene.render.resolution_y],
+            "scene": scene.name,
             "view": view,
             "camera": scene.camera.name if scene.camera else None,
             "film_transparent": scene.render.film_transparent
         }
+        if view_layer_name:
+            result["view_layer"] = view_layer_name
+
         if b64_data:
             # MCP multi-modal content: Rust maps this directly to image blocks.
+            extra_layer = f", view_layer: {view_layer_name}" if view_layer_name else ""
             result["content"] = [
                 {
                     "type": "text",
                     "text": (
-                        f"Blender capture rendered (view: {view}, "
+                        f"Blender capture rendered (scene: {scene.name}{extra_layer}, view: {view}, "
                         f"resolution: {scene.render.resolution_x}x{scene.render.resolution_y}, "
                         f"camera: {result['camera']})"
                     ),

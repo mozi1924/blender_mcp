@@ -578,6 +578,59 @@ def main():
         assert "collections" in insp_hier
         assert "root_objects" in insp_hier
         print("[OK] blender_manage_hierarchy: collections and transform-preserved parenting")
+
+        # 17. Multi-scene and view layer support across inspect, manage_nodes, and capture
+        extra_scene = bpy.data.scenes.new("TestMultiScene")
+        extra_cam_data = bpy.data.cameras.new("MultiCamData")
+        extra_cam = bpy.data.objects.new("MultiCam", extra_cam_data)
+        extra_scene.collection.objects.link(extra_cam)
+        extra_scene.camera = extra_cam
+
+        # 17a. blender_inspect on non-active scene
+        insp_scene = payload(
+            tool_call(
+                "blender_inspect",
+                {"target": "scene", "scene": "TestMultiScene"},
+            )
+        )
+        assert insp_scene["status"] == "ok"
+        assert insp_scene["scene"] == "TestMultiScene"
+        assert insp_scene["is_active_scene"] is False
+        assert "view_layers" in insp_scene
+
+        # 17b. blender_manage_nodes (COMPOSITING) on non-active scene
+        comp_scene = payload(
+            tool_call(
+                "blender_manage_nodes",
+                {
+                    "tree_type": "COMPOSITING",
+                    "scene": "TestMultiScene",
+                    "action": "apply_dag",
+                    "ensure": True,
+                    "nodes": [
+                        {"id": "Invert", "type": "CompositorNodeInvert"}
+                    ],
+                },
+            )
+        )
+        assert comp_scene["status"] == "ok"
+        assert extra_scene.compositing_node_group is not None
+        assert "TestMultiScene" in extra_scene.compositing_node_group.name
+
+        # 17c. blender_capture with scene parameter
+        cap_scene = payload(
+            tool_call(
+                "blender_capture",
+                {
+                    "scene": "TestMultiScene",
+                    "resolution": [160, 120],
+                    "return_image": False,
+                },
+            )
+        )
+        assert cap_scene["status"] == "ok"
+        assert cap_scene["scene"] == "TestMultiScene"
+        print("[OK] multi-scene and view layer support across inspect, manage_nodes, capture")
     finally:
         blender_mcp_core.stop_server()
         time.sleep(0.1)

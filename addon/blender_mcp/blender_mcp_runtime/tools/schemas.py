@@ -30,6 +30,10 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                              'description': 'Object name to inspect. '
                                                                             'Required when target is '
                                                                             "'object'."},
+                                                    'scene': {'type': 'string',
+                                                              'description': 'Optional scene name to inspect '
+                                                                             "when target is 'scene' (defaults "
+                                                                             'to active scene).'},
                                                     'collection': {'type': 'string',
                                                                    'description': 'Optional collection name '
                                                                                   'to filter inspection when '
@@ -88,7 +92,13 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                     'output_path': {'type': 'string',
                                                                     'description': 'Optional file path to '
                                                                                    'save the rendered PNG '
-                                                                                   'image to disk.'}}}},
+                                                                                   'image to disk.'},
+                                                    'scene': {'type': 'string',
+                                                              'description': 'Optional scene name to render '
+                                                                             '(defaults to active scene).'},
+                                                    'view_layer': {'type': 'string',
+                                                                   'description': 'Optional view layer name '
+                                                                                  'to render within the scene.'}}}},
  'blender_manage_modifier': {'name': 'blender_manage_modifier',
                              'description': 'Full-stack adaptive modifier tool for Blender: search the live '
                                             "modifier catalog, introspect RNA properties ('query_type'), "
@@ -343,7 +353,12 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                       'items': {'type': 'string'},
                                                                       'description': 'List of node ids to '
                                                                                      'remove in '
-                                                                                     "'remove_nodes'."}}}},
+                                                                                     "'remove_nodes'."},
+                                                         'scene': {'type': 'string',
+                                                                   'description': 'Optional scene name when '
+                                                                                  "tree_type is 'COMPOSITING' "
+                                                                                  "or 'WORLD' (defaults to "
+                                                                                  'active scene).'}}}},
  'blender_manage_hierarchy': {'name': 'blender_manage_hierarchy',
                              'description': 'Comprehensive scene hierarchy and collection management tool for '
                                             'Blender: parent and unparent objects with transform preservation '

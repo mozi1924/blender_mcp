@@ -112,7 +112,7 @@ def compute_dag_layout(nodes, links):
             positions[nid] = [r * 260.0 - 200.0, (idx - len(nids) / 2.0 + 0.5) * -180.0]
     return positions
 
-def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name=None, create=True):
+def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name=None, scene_name=None, create=True):
     tree_type = tree_type.upper() if tree_type else "MATERIAL"
 
     # Global NodeGroup direct lookup
@@ -235,14 +235,25 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
         if target_name and target_name in bpy.data.node_groups:
             return bpy.data.node_groups[target_name], f"Compositor NodeGroup '{target_name}'"
 
-        scene = bpy.context.scene
+        target_scene = None
+        if scene_name:
+            target_scene = bpy.data.scenes.get(scene_name)
+            if not target_scene:
+                return None, f"Scene '{scene_name}' not found for COMPOSITING nodes"
+        elif target_name and target_name in bpy.data.scenes:
+            target_scene = bpy.data.scenes[target_name]
+        else:
+            target_scene = bpy.context.scene
+
+        scene = target_scene
         if create and hasattr(scene, "use_nodes"):
             scene.use_nodes = True
 
         if not hasattr(scene, "compositing_node_group") or scene.compositing_node_group is None:
             if not create:
-                return None, "Scene has no compositing node group (pass ensure=true to create one)"
-            group = bpy.data.node_groups.new("CompositingTree", type='CompositorNodeTree')
+                return None, f"Scene '{scene.name}' has no compositing node group (pass ensure=true to create one)"
+            group_name = f"{scene.name}_CompositingTree"
+            group = bpy.data.node_groups.new(group_name, type='CompositorNodeTree')
             scene.compositing_node_group = group
 
         group = scene.compositing_node_group
@@ -267,12 +278,22 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
         if target_name and target_name in bpy.data.worlds:
             world = bpy.data.worlds[target_name]
         else:
-            scene = bpy.context.scene
+            target_scene = None
+            if scene_name:
+                target_scene = bpy.data.scenes.get(scene_name)
+                if not target_scene:
+                    return None, f"Scene '{scene_name}' not found for WORLD nodes"
+            elif target_name and target_name in bpy.data.scenes:
+                target_scene = bpy.data.scenes[target_name]
+            else:
+                target_scene = bpy.context.scene
+
+            scene = target_scene
             world = scene.world
             if not world:
                 if not create:
-                    return None, "Scene has no world (pass ensure=true to create one)"
-                world = bpy.data.worlds.new("World")
+                    return None, f"Scene '{scene.name}' has no world (pass ensure=true to create one)"
+                world = bpy.data.worlds.new(f"{scene.name}_World")
                 scene.world = world
 
         if getattr(world, "node_tree", None) is None:
@@ -306,6 +327,7 @@ def run_manage_nodes(args):
     target_name = args.get("target")
     mat_name = args.get("material_name")
     mod_name = args.get("modifier_name")
+    scene_name = args.get("scene") or args.get("scene_name")
 
     # Action 0: search (instant catalog lookup)
     if action in ("search", "find"):
@@ -396,7 +418,7 @@ def run_manage_nodes(args):
     is_write = action in ("apply_dag", "build_graph", "remove_nodes", "disconnect")
     ensure = bool(args.get("ensure", False))
     tree, desc = get_or_create_tree(
-        tree_type, target_name, mat_name, mod_name, create=is_write or ensure
+        tree_type, target_name, mat_name, mod_name, scene_name=scene_name, create=is_write or ensure
     )
     if not tree:
         if action == "inspect":

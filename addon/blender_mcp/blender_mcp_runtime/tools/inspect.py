@@ -16,9 +16,22 @@ def run_inspect(args):
 
     # 1. Target: scene
     if target == "scene":
-        scene = bpy.context.scene
-        active_obj = bpy.context.active_object
-        selected_objs = [obj.name for obj in bpy.context.selected_objects]
+        scene_name = args.get("scene") or args.get("scene_name")
+        if not scene_name and args.get("name") and args.get("name") in bpy.data.scenes:
+            scene_name = args.get("name")
+
+        if scene_name:
+            scene = bpy.data.scenes.get(scene_name)
+            if not scene:
+                return {"status": "error", "message": f"Scene '{scene_name}' not found in bpy.data.scenes"}
+        else:
+            scene = bpy.context.scene
+
+        is_active_scene = (scene == bpy.context.scene)
+        active_obj = bpy.context.active_object if is_active_scene else (
+            scene.view_layers[0].objects.active if (scene.view_layers and hasattr(scene.view_layers[0], "objects")) else None
+        )
+        selected_objs = [obj.name for obj in bpy.context.selected_objects] if is_active_scene else []
 
         max_depth = args.get("depth", 3)
         col_filter = args.get("collection")
@@ -61,9 +74,16 @@ def run_inspect(args):
         if col_filter and col_filter in bpy.data.collections:
             root_col = bpy.data.collections[col_filter]
 
+        active_vl = getattr(getattr(scene, "view_layers", None), "active", None)
+        active_vl_name = active_vl.name if active_vl else (scene.view_layers[0].name if scene.view_layers else None)
+        view_layers_list = [vl.name for vl in scene.view_layers] if hasattr(scene, "view_layers") else []
+
         return {
             "status": "ok",
             "scene": scene.name,
+            "is_active_scene": is_active_scene,
+            "view_layers": view_layers_list,
+            "active_view_layer": active_vl_name,
             "render_engine": scene.render.engine,
             "active_camera": scene.camera.name if scene.camera else None,
             "world": scene.world.name if scene.world else None,
