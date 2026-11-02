@@ -35,10 +35,7 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
 
         "tools/list" => {
             let tools_list = tools::get_tool_definitions();
-            Some(JsonRpcResponse::success(
-                id,
-                json!({ "tools": tools_list }),
-            ))
+            Some(JsonRpcResponse::success(id, json!({ "tools": tools_list })))
         }
 
         "tools/call" => {

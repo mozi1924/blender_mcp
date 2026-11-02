@@ -90,7 +90,11 @@ def run_capture(args):
                             val.get("view").and_then(|v| v.as_str()).unwrap_or("view"),
                             val.get("resolution")
                         );
-                        ToolCallResponse::image(b64.to_string(), "image/png".to_string(), Some(caption))
+                        ToolCallResponse::image(
+                            b64.to_string(),
+                            "image/png".to_string(),
+                            Some(caption),
+                        )
                     } else {
                         ToolCallResponse::json(&val)
                     }

@@ -7,8 +7,8 @@ pub fn call_python_tool(
     func_name: &str,
     args: serde_json::Value,
 ) -> PyResult<String> {
-    let code_c = CString::new(code)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let code_c =
+        CString::new(code).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     let file_c = CString::new("tool.py").unwrap();
     let mod_c = CString::new("tool_module").unwrap();
 

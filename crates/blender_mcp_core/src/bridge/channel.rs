@@ -27,9 +27,7 @@ impl ToolCallResponse {
     pub fn text(msg: impl Into<String>) -> Self {
         Self {
             is_error: false,
-            content: vec![ToolContent::Text {
-                text: msg.into(),
-            }],
+            content: vec![ToolContent::Text { text: msg.into() }],
         }
     }
 

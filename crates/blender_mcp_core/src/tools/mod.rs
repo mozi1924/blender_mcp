@@ -142,7 +142,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "blender_transform_object".to_string(),
-            description: "Translate, rotate (Euler degrees), or scale an existing object. Supports absolute or relative mode, and applying transforms.".to_string(),
+            description: "Translate, rotate (Euler degrees, quaternion, or axis-angle), or scale an existing object. Supports absolute or relative mode, fine-grained transform applying, and origin manipulation (geometry, bottom, cursor).".to_string(),
             input_schema: json!({
                 "type": "object",
                 "required": ["name"],
@@ -163,7 +163,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                         "items": { "type": "number" },
                         "minItems": 3,
                         "maxItems": 3,
-                        "description": "Euler rotation in degrees [rx, ry, rz]."
+                        "description": "Rotation in degrees [rx, ry, rz]. Automatically adapts to object rotation_mode (Euler, Quaternion, or Axis-Angle)."
                     },
                     "scale": {
                         "type": "array",
@@ -178,49 +178,69 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                         "default": "absolute",
                         "description": "Whether transforms are absolute world coordinates or relative offsets."
                     },
+                    "origin_to": {
+                        "type": "string",
+                        "enum": ["GEOMETRY", "BOTTOM", "CURSOR", "CENTER_OF_MASS"],
+                        "description": "Set object origin point: 'GEOMETRY' (center of bounds), 'BOTTOM' (bottom center of bounding box, ideal for placing objects on floor), 'CURSOR', or 'CENTER_OF_MASS'."
+                    },
                     "apply_transform": {
                         "type": "boolean",
                         "default": false,
                         "description": "Whether to permanently apply location, rotation, and scale to object data."
+                    },
+                    "apply_location": {
+                        "type": "boolean",
+                        "description": "Whether to permanently apply location only."
+                    },
+                    "apply_rotation": {
+                        "type": "boolean",
+                        "description": "Whether to permanently apply rotation only."
+                    },
+                    "apply_scale": {
+                        "type": "boolean",
+                        "description": "Whether to permanently apply scale only."
                     }
                 }
             }),
         },
         ToolDefinition {
             name: "blender_manage_modifier".to_string(),
-            description: "Add, configure, apply, or remove modifiers (Subdivision Surface, Bevel, Boolean, Mirror, Array, Solidify, Remesh, Decimate) on an object.".to_string(),
+            description: "Full-stack adaptive modifier tool for Blender: search catalog (50+ modifiers including Geometry Nodes, Weighted Normal, Subsurf, Boolean, Bevel), introspect RNA properties ('query_type'), inspect object modifier stacks ('inspect'), add, configure, apply, or remove modifiers with automatic pointer resolution (objects, collections, node groups).".to_string(),
             input_schema: json!({
                 "type": "object",
-                "required": ["object_name", "action"],
+                "required": ["action"],
                 "properties": {
-                    "object_name": {
-                        "type": "string",
-                        "description": "Target object name."
-                    },
                     "action": {
                         "type": "string",
-                        "enum": ["add", "configure", "apply", "remove"],
-                        "description": "Modifier action."
+                        "enum": ["search", "query_type", "inspect", "add", "configure", "apply", "remove"],
+                        "description": "Modifier action: 'search' (catalog search), 'query_type' (introspect modifier RNA properties & valid enums), 'inspect' (list all modifiers on object), 'add', 'configure', 'apply', or 'remove'."
+                    },
+                    "object_name": {
+                        "type": "string",
+                        "description": "Target object name. Required for 'add', 'configure', 'apply', 'remove', and 'inspect'."
                     },
                     "modifier_type": {
                         "type": "string",
-                        "enum": ["SUBSURF", "BEVEL", "BOOLEAN", "MIRROR", "ARRAY", "SOLIDIFY", "REMESH", "DECIMATE", "CURVE"],
-                        "description": "Modifier type (required for 'add', optional lookup for other actions)."
+                        "description": "Modifier type identifier (e.g. 'SUBSURF', 'BOOLEAN', 'NODES', 'BEVEL', 'MIRROR', 'SOLIDIFY', 'WEIGHTED_NORMAL', 'SHRINKWRAP', 'ARRAY', 'REMESH', 'DECIMATE', etc.). Required for 'add' and 'query_type'."
                     },
                     "modifier_name": {
                         "type": "string",
-                        "description": "Specific modifier name (required for 'apply'/'remove' if multiple exist)."
+                        "description": "Specific modifier name (required for 'apply'/'remove' if multiple exist, or optional custom name for 'add')."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword to filter modifiers in 'search' action."
                     },
                     "properties": {
                         "type": "object",
-                        "description": "Key-value properties to set on modifier (e.g. {'levels': 2, 'width': 0.05, 'thickness': 0.1, 'operation': 'DIFFERENCE', 'object': 'Cutter'})."
+                        "description": "Key-value properties to set on modifier (e.g. {'levels': 2, 'solver': 'MANIFOLD', 'operation': 'DIFFERENCE', 'object': 'Cutter', 'node_group': 'MyGeometryNodes'}). Pointer properties (Object, Collection, NodeTree) are resolved automatically."
                     }
                 }
             }),
         },
         ToolDefinition {
             name: "blender_manage_material".to_string(),
-            description: "Create, assign, and tweak Principled BSDF material properties (color, metallic, roughness, emission, transmission) for an object.".to_string(),
+            description: "High-level semantic material and slot asset management for Blender: create and assign materials across multiple slots, inspect material slots, assign existing materials, and configure OpenPBR Principled BSDF v2 surface properties (Base Color, Metallic, Roughness, IOR, Coat, Sheen, Subsurface, Thin Film, Emission, Transmission) via dynamic socket mapping.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "required": ["object_name"],
@@ -231,13 +251,20 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                     },
                     "action": {
                         "type": "string",
-                        "enum": ["create_and_assign", "assign_existing", "update_principled"],
+                        "enum": ["create_and_assign", "assign_existing", "update_principled", "inspect", "remove_slot"],
                         "default": "create_and_assign",
-                        "description": "Material action."
+                        "description": "Material action: 'create_and_assign', 'assign_existing', 'update_principled', 'inspect' (read all slots and PBR values), or 'remove_slot'."
                     },
                     "material_name": {
                         "type": "string",
                         "description": "Material name to create or assign."
+                    },
+                    "slot_index": {
+                        "description": "Target material slot index (0, 1, 2...) or 'new'/'append' to add a new slot to the object."
+                    },
+                    "pbr_properties": {
+                        "type": "object",
+                        "description": "Arbitrary key-value map of Principled BSDF socket properties to set (e.g. {'coat_weight': 1.0, 'coat_roughness': 0.05, 'ior': 1.45, 'thin_film_thickness': 400.0}). Sockets are dynamically matched."
                     },
                     "base_color": {
                         "description": "Base color: either hex string like '#FF5500' or [r, g, b, a] numbers (0.0 - 1.0)."
@@ -253,6 +280,38 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                         "minimum": 0.0,
                         "maximum": 1.0,
                         "description": "Roughness value (0.0 to 1.0)."
+                    },
+                    "ior": {
+                        "type": "number",
+                        "description": "Index of Refraction (IOR) for dielectric reflection and transmission (e.g. 1.45 for plastics, 1.5 for glass, 1.33 for water)."
+                    },
+                    "coat": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Coat layer weight (0.0 to 1.0) for clear coat on car paint, lacquer, or varnished materials."
+                    },
+                    "coat_roughness": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Coat roughness (0.0 to 1.0)."
+                    },
+                    "sheen": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Sheen layer weight (0.0 to 1.0) for cloth, velvet, or peach fuzz."
+                    },
+                    "subsurface": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Subsurface scattering weight (0.0 to 1.0) for skin, marble, wax, or milk."
+                    },
+                    "thin_film": {
+                        "type": "number",
+                        "description": "Thin film thickness in nanometers for iridescent soap bubbles or oil slicks (e.g. 400.0 - 600.0)."
                     },
                     "emission_color": {
                         "description": "Emission color: hex or [r, g, b]."

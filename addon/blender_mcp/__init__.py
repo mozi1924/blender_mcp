@@ -180,10 +180,10 @@ class VIEW3D_PT_blender_mcp(bpy.types.Panel):
             box.operator("blmcp.server_start", text="Start Server", icon="PLAY")
 
         box2 = layout.box()
-        box2.label(text="Semantic Tools: 9 Available", icon="TOOL_SETTINGS")
+        box2.label(text="Semantic Tools: 10 Available", icon="TOOL_SETTINGS")
         box2.label(text="Inspect, Primitives, Transform,")
-        box2.label(text="Modifiers, Materials, Setup,")
-        box2.label(text="Capture, Script, Undo")
+        box2.label(text="Modifiers, Materials, Nodes,")
+        box2.label(text="Setup, Capture, Script, Undo")
 
 
 classes = (

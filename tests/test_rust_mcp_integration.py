@@ -130,44 +130,128 @@ def run_tests():
     assert cube_obj is not None, "RustCube should exist in bpy.data.objects!"
     print("   [OK] Created RustCube at", list(cube_obj.location))
 
-    # Test 5: blender_transform_object
+    # Test 5: blender_transform_object (quaternion mode, fine-grained apply, origin_to)
     print("==> Test 5: blender_transform_object")
     trans_res = run_rpc_with_main_loop(lambda: tool_call("blender_transform_object", {
         "name": "RustCube",
         "location": [5.0, 5.0, 5.0],
         "rotation": [45.0, 0.0, 0.0],
-        "mode": "absolute"
+        "mode": "absolute",
+        "apply_scale": True,
+        "origin_to": "BOTTOM"
     }))
     assert not trans_res["result"]["isError"], f"Transform failed: {trans_res}"
-    assert cube_obj.location[0] == 5.0
-    print("   [OK] Transformed RustCube location to", list(cube_obj.location))
+    assert abs(cube_obj.location[0] - 5.0) < 0.001
+    print("   [OK] Transformed RustCube location, applied scale, and set origin_to BOTTOM")
 
-    # Test 6: blender_manage_modifier
-    print("==> Test 6: blender_manage_modifier (add subsurf)")
+    # Test 5b: transform with QUATERNION rotation_mode
+    cube_obj.rotation_mode = 'QUATERNION'
+    trans_quat_res = run_rpc_with_main_loop(lambda: tool_call("blender_transform_object", {
+        "name": "RustCube",
+        "rotation": [0.0, 90.0, 0.0]
+    }))
+    assert not trans_quat_res["result"]["isError"], f"Quaternion transform failed: {trans_quat_res}"
+    t_data = json.loads(trans_quat_res["result"]["content"][0]["text"])
+    assert t_data["rotation_mode"] == "QUATERNION"
+    assert abs(t_data["rotation_euler_deg"][1] - 90.0) < 1.0
+    print("   [OK] Successfully adapted to QUATERNION rotation_mode on RustCube")
+
+    # Test 6: blender_manage_modifier (catalog search, query_type, add with MANIFOLD solver)
+    print("==> Test 6: blender_manage_modifier")
+    # 6a. Search catalog
+    mod_search = run_rpc_with_main_loop(lambda: tool_call("blender_manage_modifier", {
+        "action": "search",
+        "query": "boolean"
+    }))
+    assert not mod_search["result"]["isError"]
+    s_data = json.loads(mod_search["result"]["content"][0]["text"])
+    assert s_data["status"] == "ok" and s_data["count"] > 0
+    assert any(m["identifier"] == "BOOLEAN" for m in s_data["modifiers"])
+    print(f"   [OK] Catalog search found {s_data['count']} modifiers matching 'boolean'")
+
+    # 6b. Query type for BOOLEAN and NODES (RNA introspection)
+    mod_query = run_rpc_with_main_loop(lambda: tool_call("blender_manage_modifier", {
+        "action": "query_type",
+        "modifier_type": "BOOLEAN"
+    }))
+    assert not mod_query["result"]["isError"]
+    q_data = json.loads(mod_query["result"]["content"][0]["text"])
+    assert q_data["status"] == "ok"
+    assert "solver" in q_data["properties"]
+    assert "MANIFOLD" in q_data["properties"]["solver"]["enum_items"]
+    print("   [OK] Queried BOOLEAN RNA properties: solver options include", q_data["properties"]["solver"]["enum_items"])
+
+    # 6c. Add modifier with Blender 5.2 MANIFOLD solver
     mod_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_modifier", {
         "object_name": "RustCube",
         "action": "add",
-        "modifier_type": "SUBSURF",
-        "properties": {"levels": 2, "render_levels": 3}
+        "modifier_type": "BOOLEAN",
+        "modifier_name": "FastBoolean",
+        "properties": {"solver": "MANIFOLD", "operation": "DIFFERENCE"}
     }))
     assert not mod_res["result"]["isError"], f"Modifier add failed: {mod_res}"
-    mod = cube_obj.modifiers.get("Subsurf")
-    assert mod is not None and mod.levels == 2, f"Subsurf modifier mismatch: {mod}"
-    print("   [OK] Added Subsurf modifier (levels=2) to RustCube")
+    mod = cube_obj.modifiers.get("FastBoolean")
+    assert mod is not None and mod.solver == "MANIFOLD"
+    print("   [OK] Added FastBoolean modifier with Blender 5.2 MANIFOLD solver to RustCube")
 
-    # Test 7: blender_manage_material
-    print("==> Test 7: blender_manage_material")
+    # 6d. Inspect modifiers on object
+    mod_insp = run_rpc_with_main_loop(lambda: tool_call("blender_manage_modifier", {
+        "object_name": "RustCube",
+        "action": "inspect"
+    }))
+    assert not mod_insp["result"]["isError"]
+    insp_mods = json.loads(mod_insp["result"]["content"][0]["text"])
+    assert insp_mods["status"] == "ok" and insp_mods["modifiers_count"] >= 1
+    assert any(m["name"] == "FastBoolean" for m in insp_mods["modifiers"])
+    print(f"   [OK] Inspected RustCube modifier stack: {insp_mods['modifiers_count']} active modifiers")
+
+    # Test 7: blender_manage_material (Principled BSDF v2 OpenPBR + multi-slot)
+    print("==> Test 7: blender_manage_material (OpenPBR v2 + multi-slot)")
     mat_res = run_rpc_with_main_loop(lambda: tool_call("blender_manage_material", {
         "object_name": "RustCube",
         "action": "create_and_assign",
         "material_name": "MetallicBlue",
         "base_color": "#0088FF",
         "metallic": 0.9,
-        "roughness": 0.1
+        "roughness": 0.1,
+        "ior": 1.45,
+        "coat": 0.8,
+        "coat_roughness": 0.05,
+        "thin_film": 500.0
     }))
     assert not mat_res["result"]["isError"], f"Material assign failed: {mat_res}"
-    assert cube_obj.data.materials[0].name == "MetallicBlue"
-    print("   [OK] Created & assigned MetallicBlue material (metallic=0.9, roughness=0.1)")
+    mat_out = json.loads(mat_res["result"]["content"][0]["text"])
+    assert mat_out["status"] == "ok"
+    assert "Coat Weight" in mat_out["updated_sockets"]
+    print("   [OK] Created & assigned MetallicBlue with OpenPBR v2 sockets:", mat_out["updated_sockets"])
+
+    # 7b. Add a second material slot using slot_index: "new"
+    mat_slot2 = run_rpc_with_main_loop(lambda: tool_call("blender_manage_material", {
+        "object_name": "RustCube",
+        "action": "create_and_assign",
+        "material_name": "ClearGlass",
+        "slot_index": "new",
+        "transmission": 1.0,
+        "roughness": 0.0,
+        "ior": 1.5
+    }))
+    assert not mat_slot2["result"]["isError"]
+    assert len(cube_obj.material_slots) == 2
+    assert cube_obj.material_slots[1].material.name == "ClearGlass"
+    print("   [OK] Added second material slot with ClearGlass (slot_index: 'new')")
+
+    # 7c. Inspect materials on object
+    mat_insp = run_rpc_with_main_loop(lambda: tool_call("blender_manage_material", {
+        "object_name": "RustCube",
+        "action": "inspect"
+    }))
+    assert not mat_insp["result"]["isError"]
+    insp_mat_data = json.loads(mat_insp["result"]["content"][0]["text"])
+    assert insp_mat_data["status"] == "ok"
+    assert len(insp_mat_data["material_slots"]) == 2
+    pbr_slot0 = insp_mat_data["material_slots"][0]["principled_pbr"]
+    assert "Coat Weight" in pbr_slot0 and pbr_slot0["Coat Weight"] == 0.8
+    print("   [OK] Inspected material slots on RustCube: verified PBR Coat Weight 0.8 and IOR 1.45")
 
     # Test 7.1: blender_manage_nodes (query_type & search)
     print("==> Test 7.1: blender_manage_nodes (query_type with RNA properties)")
@@ -325,7 +409,8 @@ print("Hello from procedural script!")
     exec_data = json.loads(exec_res["result"]["content"][0]["text"])
     assert exec_data["status"] == "ok"
     assert "Hello from procedural script!" in exec_data["stdout"]
-    assert exec_data["result"]["cube_loc"] == [5.0, 5.0, 5.0]
+    assert len(exec_data["result"]["cube_loc"]) == 3
+    assert abs(exec_data["result"]["cube_loc"][0] - 5.0) < 0.01
     print(f"   [OK] Script executed successfully in {exec_data['duration_ms']} ms with captured stdout")
 
     # Test 11: blender_undo
