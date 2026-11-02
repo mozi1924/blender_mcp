@@ -1,14 +1,15 @@
-// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Migrated handler for ``blender_manage_modifier``.
 
-use crate::bridge::channel::ToolCallResponse;
-use crate::tools::helper::call_python_tool;
-use pyo3::prelude::*;
+Logic is unchanged from the Rust-embedded implementation, except that shared
+RNA helpers/catalogs are imported from the persistent runtime instead of being
+duplicated or recompiled per call.
+"""
 
-pub fn manage_modifier(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
-    let code = r#"
+
 import bpy
-from blender_mcp_runtime import rna
+from blender_mcp_runtime import catalogs, rna
 
 def run_modifier(args):
     action = args.get("action", "add").lower()
@@ -16,41 +17,9 @@ def run_modifier(args):
     if isinstance(mod_type, str):
         mod_type = mod_type.upper().strip()
 
-    # 1. Search action: query catalog of all available Blender modifiers
+    # 1. Search action: shared, cached live modifier catalog
     if action == "search":
-        query = (args.get("query") or "").lower().strip()
-        enum_prop = bpy.types.Modifier.bl_rna.properties.get("type")
-        items = []
-        if enum_prop:
-            for it in enum_prop.enum_items:
-                if not it.identifier:
-                    continue
-                score = 0
-                id_l = it.identifier.lower()
-                name_l = it.name.lower()
-                desc_l = it.description.lower() if it.description else ""
-                if not query:
-                    score = 1
-                elif query in id_l:
-                    score += 10
-                elif query in name_l:
-                    score += 5
-                elif query in desc_l:
-                    score += 1
-
-                if score > 0:
-                    items.append({
-                        "identifier": it.identifier,
-                        "name": it.name,
-                        "description": it.description,
-                        "score": score
-                    })
-        items.sort(key=lambda x: x["score"], reverse=True)
-        return {
-            "status": "ok",
-            "count": len(items),
-            "modifiers": [{"identifier": x["identifier"], "name": x["name"], "description": x["description"]} for x in items]
-        }
+        return catalogs.modifier_types(args.get("query") or "")
 
     # 2. Query type: introspect RNA properties, enum options, and pointer types
     if action == "query_type":
@@ -249,24 +218,9 @@ def run_modifier(args):
 
     else:
         return {"status": "error", "message": f"Unknown action '{action}'. Allowed: add, configure, apply, remove, inspect, query_type, search"}
-"#;
 
-    match call_python_tool(py, code, "run_modifier", args) {
-        Ok(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if val.get("status").and_then(|s| s.as_str()) == Some("error") {
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Modifier operation failed");
-                    ToolCallResponse::error(msg)
-                } else {
-                    ToolCallResponse::json(&val)
-                }
-            } else {
-                ToolCallResponse::text(json_str)
-            }
-        }
-        Err(e) => ToolCallResponse::error(format!("Python error during modifier operation: {}", e)),
-    }
-}
+# --- MCP registration -------------------------------------------------------
+from ..registry import register
+from . import schemas
+
+schemas.register_tool(register, "blender_manage_modifier", run_modifier)

@@ -104,9 +104,22 @@ def main():
         assert "operator" in primitive["inputSchema"]["properties"]
         # No stale hardcoded primitive enum survives in the live schema.
         assert "enum" not in primitive["inputSchema"]["properties"]["primitive_type"]
+        assert len(tools) == 12, sorted(tools)
         engine_schema = tools["blender_setup_scene"]["inputSchema"]["properties"]["render_engine"]
-        assert "enum" not in engine_schema, engine_schema
-        print(f"[OK] tools/list exposes {len(tools)} tools with live schemas")
+        # The schema now carries the live engine enum, not a stale hardcoded one.
+        assert engine_schema.get("enum"), engine_schema
+        assert "BLENDER_EEVEE_NEXT" not in engine_schema["enum"], engine_schema
+        assert len(
+            tools["blender_manage_modifier"]["inputSchema"]["properties"]["modifier_type"].get("enum", [])
+        ) > 50
+        assert "MESH" in tools["blender_inspect"]["inputSchema"]["properties"]["object_type"]["enum"]
+        assert "BOTTOM" in tools["blender_transform_object"]["inputSchema"]["properties"]["origin_to"]["enum"]
+        light_types = tools["blender_setup_scene"]["inputSchema"]["properties"]["light"]["properties"]["type"]["enum"]
+        assert {"POINT", "SUN", "SPOT", "AREA"} <= set(light_types), light_types
+        assert tools["blender_describe"]["annotations"]["readOnlyHint"] is True
+        assert tools["blender_inspect"]["annotations"]["readOnlyHint"] is True
+        assert tools["blender_create_primitive"]["annotations"]["destructiveHint"] is False
+        print(f"[OK] tools/list exposes {len(tools)} tools with live schemas + annotations")
 
         # 2. Operator RNA introspection.
         cube = payload(

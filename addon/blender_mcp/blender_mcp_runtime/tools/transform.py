@@ -1,12 +1,13 @@
-// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Migrated handler for ``blender_transform_object``.
 
-use crate::bridge::channel::ToolCallResponse;
-use crate::tools::helper::call_python_tool;
-use pyo3::prelude::*;
+Logic is unchanged from the Rust-embedded implementation, except that shared
+RNA helpers/catalogs are imported from the persistent runtime instead of being
+duplicated or recompiled per call.
+"""
 
-pub fn transform_object(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
-    let code = r#"
+
 import bpy
 import math
 import mathutils
@@ -85,12 +86,14 @@ def run_transform(args):
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
-        if origin_type == "GEOMETRY":
+        if origin_type in ("GEOMETRY", "ORIGIN_GEOMETRY", "GEOMETRY_ORIGIN"):
             bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
-        elif origin_type == "CURSOR":
+        elif origin_type in ("CURSOR", "ORIGIN_CURSOR"):
             bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-        elif origin_type == "CENTER_OF_MASS":
+        elif origin_type in ("CENTER_OF_MASS", "ORIGIN_CENTER_OF_MASS"):
             bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_MASS')
+        elif origin_type in ("CENTER_OF_VOLUME", "ORIGIN_CENTER_OF_VOLUME"):
+            bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_VOLUME')
         elif origin_type == "BOTTOM":
             # Set origin to bottom center of bounding box
             bbox_world = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
@@ -135,24 +138,9 @@ def run_transform(args):
         "scale": [round(v, 4) for v in obj.scale],
         "dimensions": [round(v, 4) for v in obj.dimensions]
     }
-"#;
 
-    match call_python_tool(py, code, "run_transform", args) {
-        Ok(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if val.get("status").and_then(|s| s.as_str()) == Some("error") {
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Transform failed");
-                    ToolCallResponse::error(msg)
-                } else {
-                    ToolCallResponse::json(&val)
-                }
-            } else {
-                ToolCallResponse::text(json_str)
-            }
-        }
-        Err(e) => ToolCallResponse::error(format!("Python error during transform: {}", e)),
-    }
-}
+# --- MCP registration -------------------------------------------------------
+from ..registry import register
+from . import schemas
+
+schemas.register_tool(register, "blender_transform_object", run_transform)

@@ -6,9 +6,20 @@ use pyo3::prelude::*;
 
 #[pyfunction]
 #[pyo3(signature = (host = None, port = None))]
-fn start_server(host: Option<&str>, port: Option<u16>) -> PyResult<bool> {
+fn start_server(py: Python<'_>, host: Option<&str>, port: Option<u16>) -> PyResult<bool> {
     let host = host.unwrap_or("127.0.0.1");
     let port = port.unwrap_or(8765);
+
+    // Build the live Python tool catalog before accepting requests.  This is
+    // the single source of truth for tools/list and tools/call.
+    match tools::refresh_tool_definitions(py) {
+        Ok(count) => println!(
+            "[Blender MCP Rust] Loaded {} tools from Python runtime",
+            count
+        ),
+        Err(err) => eprintln!("[Blender MCP Rust] Failed to load tool catalog: {}", err),
+    }
+
     match server::start(host, port) {
         Ok(()) => Ok(true),
         Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
@@ -36,7 +47,10 @@ fn poll_tick(py: Python<'_>, max_batch: usize) -> PyResult<usize> {
 }
 
 #[pyfunction]
-fn get_tools() -> PyResult<String> {
+fn get_tools(py: Python<'_>) -> PyResult<String> {
+    if tools::get_tool_definitions().is_empty() {
+        tools::refresh_tool_definitions(py).map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    }
     let tool_defs = tools::get_tool_definitions();
     serde_json::to_string_pretty(&tool_defs)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))

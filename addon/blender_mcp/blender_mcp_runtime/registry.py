@@ -30,17 +30,21 @@ def get(name):
     return _REGISTRY.get(name)
 
 
+def _materialize(spec):
+    schema = spec["inputSchema"]
+    if callable(schema):
+        schema = schema()
+    return {
+        "name": spec["name"],
+        "description": spec["description"],
+        "inputSchema": schema,
+        "annotations": spec["annotations"],
+    }
+
+
 def list_tools():
-    """Return MCP ``Tool`` definitions (the Rust side merges these)."""
-    return [
-        {
-            "name": spec["name"],
-            "description": spec["description"],
-            "inputSchema": spec["inputSchema"],
-            "annotations": spec["annotations"],
-        }
-        for spec in _REGISTRY.values()
-    ]
+    """Return MCP ``Tool`` definitions (the Rust side consumes these)."""
+    return [_materialize(spec) for spec in _REGISTRY.values()]
 
 
 def list_tools_json():

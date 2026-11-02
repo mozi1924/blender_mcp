@@ -1,23 +1,13 @@
-// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Migrated handler for ``blender_execute_script``.
 
-use crate::bridge::channel::ToolCallResponse;
-use crate::tools::helper::call_python_tool;
-use pyo3::prelude::*;
-use serde_json::json;
+Logic is unchanged from the Rust-embedded implementation, except that shared
+RNA helpers/catalogs are imported from the persistent runtime instead of being
+duplicated or recompiled per call.
+"""
 
-pub fn execute_script(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
-    let code_to_run = match args.get("code").and_then(|c| c.as_str()) {
-        Some(c) => c,
-        None => return ToolCallResponse::error("Argument 'code' is required"),
-    };
 
-    let auto_undo = args
-        .get("auto_undo")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
-    let wrapper_code = r#"
 import bpy
 import io
 import sys
@@ -93,35 +83,9 @@ def run_script(args):
     finally:
         sys.stdout = old_stdout
         sys.stderr = old_stderr
-"#;
 
-    let payload = json!({
-        "code": code_to_run,
-        "auto_undo": auto_undo
-    });
+# --- MCP registration -------------------------------------------------------
+from ..registry import register
+from . import schemas
 
-    match call_python_tool(py, wrapper_code, "run_script", payload) {
-        Ok(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if val.get("status").and_then(|s| s.as_str()) == Some("error") {
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Script execution failed");
-                    let tb = val.get("traceback").and_then(|t| t.as_str()).unwrap_or("");
-                    let stdout = val.get("stdout").and_then(|t| t.as_str()).unwrap_or("");
-                    let stderr = val.get("stderr").and_then(|t| t.as_str()).unwrap_or("");
-                    ToolCallResponse::error(format!(
-                        "{}\nTraceback:\n{}\nStdout:\n{}\nStderr:\n{}",
-                        msg, tb, stdout, stderr
-                    ))
-                } else {
-                    ToolCallResponse::json(&val)
-                }
-            } else {
-                ToolCallResponse::text(json_str)
-            }
-        }
-        Err(e) => ToolCallResponse::error(format!("Python error during script execution: {}", e)),
-    }
-}
+schemas.register_tool(register, "blender_execute_script", run_script)

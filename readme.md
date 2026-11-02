@@ -14,7 +14,8 @@ The tool layer is **adaptive**: instead of hardcoding Blender's parameters and e
 - **Thread-Safe Command Dispatch**: Tokio handles high-concurrency async HTTP/SSE requests in a background OS thread; tasks are dispatched safely to Blender's main thread via lock-free channels with GIL synchronization.
 - **Streamable HTTP & SSE Protocol**: Conforms to standard Model Context Protocol (JSON-RPC 2.0). Connect directly via `http://localhost:8765/mcp`.
 - **Adaptive RNA-driven Tools**: `blender_describe` and `blender_run_operator` expose Blender's live RNA (operator parameters, enum identifiers, ranges, defaults, node-tree validity). New Blender features are available immediately; stale hardcoded enums are gone.
-- **Shared Python Runtime**: all Blender knowledge lives in `addon/blender_mcp/blender_mcp_runtime` (one cached module) instead of Python source strings recompiled on every call. Catalogs and RNA metadata persist across requests.
+- **Transport-only Rust**: Rust owns the Tokio/HTTP/SSE server, the main-thread bridge, panic isolation and MCP envelope conversion. All 12 tool handlers and their schemas live in the persistent Python runtime; adding a tool needs zero Rust changes.
+- **Shared Python Runtime**: `addon/blender_mcp/blender_mcp_runtime` is imported once and cached in `sys.modules`. Catalogs, RNA metadata and schema builders persist across requests instead of Python source strings being recompiled per call.
 - **12 Tools**:
   1. `blender_describe`: Adaptive introspection — operator/struct/property schemas, modifier and node catalogs, valid node tree types, render engines, primitive kinds, ID types.
   2. `blender_run_operator`: Run any `bpy.ops` operator with RNA validation, enum coercion, pointer-by-name resolution, poll diagnostics and explicit unknown-parameter errors.
@@ -28,6 +29,28 @@ The tool layer is **adaptive**: instead of hardcoding Blender's parameters and e
   10. `blender_setup_scene`: Camera look-at, lights, live render-engine enum, RNA-discovered sample properties and world background sockets.
   11. `blender_execute_script`: Python execution with automatic Undo, timing and stdout/stderr capture.
   12. `blender_undo`: One-click undo.
+
+### Architecture
+
+```text
+Rust (blender_mcp_core.so)
+  ├── axum / Tokio        JSON-RPC, HTTP + SSE transport
+  ├── bridge              async request -> Blender main thread (try_send + oneshot)
+  ├── dispatcher          main-thread poll_tick, catch_unwind, responder
+  └── tools/runtime.rs    name-based forwarding + tool catalog cache
+
+Python (blender_mcp_runtime, imported once)
+  ├── rna.py              RNA introspection, coercion, pointers, sockets
+  ├── catalogs.py         live operators/modifiers/nodes/engines/ID types
+  ├── registry.py         tool registration + schema materialization
+  ├── schemas.py          migrated tool schemas with live enum patching
+  └── tools/*.py          12 tool handlers
+```
+
+`blender_describe` reads the same RNA kernel, so agents can discover parameters
+at runtime instead of relying on a stale schema. `tools/list` is populated from
+the Python catalog at `start_server`, and the live schemas override the static
+fallback.
 
 ---
 

@@ -1,22 +1,13 @@
-// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Migrated handler for ``blender_inspect``.
 
-use crate::bridge::channel::ToolCallResponse;
-use crate::tools::helper::call_python_tool;
-use pyo3::prelude::*;
+Logic is unchanged from the Rust-embedded implementation, except that shared
+RNA helpers/catalogs are imported from the persistent runtime instead of being
+duplicated or recompiled per call.
+"""
 
-pub fn inspect(py: Python<'_>, mut args: serde_json::Value) -> ToolCallResponse {
-    let target = args
-        .get("target")
-        .and_then(|v| v.as_str())
-        .unwrap_or("scene")
-        .to_string();
 
-    if let Some(obj) = args.as_object_mut() {
-        obj.insert("target".to_string(), serde_json::Value::String(target));
-    }
-
-    let code = r#"
 import bpy
 import math
 
@@ -320,24 +311,9 @@ def run_inspect(args):
         return result
     else:
         return {"status": "error", "message": f"Unknown target '{target}'. Allowed: scene, object, file, datablocks"}
-"#;
 
-    match call_python_tool(py, code, "run_inspect", args) {
-        Ok(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if val.get("status").and_then(|s| s.as_str()) == Some("error") {
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Inspect failed");
-                    ToolCallResponse::error(msg)
-                } else {
-                    ToolCallResponse::json(&val)
-                }
-            } else {
-                ToolCallResponse::text(json_str)
-            }
-        }
-        Err(e) => ToolCallResponse::error(format!("Python error during inspect: {}", e)),
-    }
-}
+# --- MCP registration -------------------------------------------------------
+from ..registry import register
+from . import schemas
+
+schemas.register_tool(register, "blender_inspect", run_inspect)

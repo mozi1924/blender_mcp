@@ -36,27 +36,18 @@ pub async fn handle_rpc_request(req: JsonRpcRequest) -> Option<JsonRpcResponse> 
         "ping" => Some(JsonRpcResponse::success(id, json!({}))),
 
         "tools/list" => {
+            // Populated at start_server() from the Python runtime.  If the
+            // cache is empty (e.g. runtime import was delayed), fall back to a
+            // one-shot bridge request.
             let mut tool_list = tools::get_tool_definitions();
-
-            // The Python runtime owns the adaptive catalog (live enums/schemas).
-            // Merge it over the static fallback; a busy main thread simply keeps
-            // the static definitions for this call.
-            if let Ok(rx) = send_request("__list_tools__".to_string(), json!({})) {
-                if let Ok(Ok(resp)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
-                    if !resp.is_error {
-                        if let Some(ToolContent::Text { text }) = resp.content.first() {
-                            if let Ok(dynamic) =
-                                serde_json::from_str::<Vec<tools::ToolDefinition>>(text)
-                            {
-                                for tool in dynamic {
-                                    if let Some(existing) =
-                                        tool_list.iter_mut().find(|item| item.name == tool.name)
-                                    {
-                                        *existing = tool;
-                                    } else {
-                                        tool_list.push(tool);
-                                    }
-                                }
+            if tool_list.is_empty() {
+                if let Ok(rx) = send_request("__list_tools__".to_string(), json!({})) {
+                    if let Ok(Ok(resp)) = tokio::time::timeout(Duration::from_secs(3), rx).await {
+                        if !resp.is_error {
+                            if let Some(ToolContent::Text { text }) = resp.content.first() {
+                                tool_list =
+                                    serde_json::from_str::<Vec<tools::ToolDefinition>>(text)
+                                        .unwrap_or_default();
                             }
                         }
                     }

@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use crate::bridge::channel::ToolCallResponse;
+use crate::bridge::channel::{ToolCallResponse, ToolContent};
 use pyo3::prelude::*;
 use serde_json::Value;
-use std::ffi::CString;
 
 pub const RUNTIME_MODULE: &str = "blender_mcp_runtime";
 
@@ -68,10 +67,23 @@ pub fn respond(json_str: String) -> ToolCallResponse {
 
 pub fn respond_value(value: Value) -> ToolCallResponse {
     if value.get("status").and_then(Value::as_str) == Some("error") {
-        ToolCallResponse::json_error(&value)
-    } else {
-        ToolCallResponse::json(&value)
+        return ToolCallResponse::json_error(&value);
     }
+
+    // Tools that return multi-modal content (e.g. blender_capture) emit an
+    // MCP-shaped `content` array.  Convert it directly instead of wrapping the
+    // base64 payload in a JSON text block.
+    if let Some(items) = value.get("content").and_then(Value::as_array) {
+        if let Ok(content) = serde_json::from_value::<Vec<ToolContent>>(Value::Array(items.clone()))
+        {
+            return ToolCallResponse {
+                is_error: false,
+                content,
+            };
+        }
+    }
+
+    ToolCallResponse::json(&value)
 }
 
 pub fn runtime_error(prefix: &str, err: PyErr) -> ToolCallResponse {
@@ -79,26 +91,4 @@ pub fn runtime_error(prefix: &str, err: PyErr) -> ToolCallResponse {
         "{prefix}: {err}. Make sure the 'blender_mcp_runtime' package is next to the \
          blender_mcp_core extension (it ships with the add-on)."
     ))
-}
-
-/// Legacy helper kept for the still-migrating tools.  New/adaptive tools should
-/// use [`call_runtime`] instead.
-pub fn call_python_tool(
-    py: Python<'_>,
-    code: &str,
-    func_name: &str,
-    args: serde_json::Value,
-) -> PyResult<String> {
-    let code_c =
-        CString::new(code).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    let file_c = CString::new("tool.py").unwrap();
-    let mod_c = CString::new("tool_module").unwrap();
-
-    let module = PyModule::from_code(py, &code_c, &file_c, &mod_c)?;
-    let run_fn = module.getattr(func_name)?;
-    let json_mod = py.import("json")?;
-    let py_args = json_mod.call_method1("loads", (args.to_string(),))?;
-    let py_res = run_fn.call1((py_args,))?;
-    let json_str: String = json_mod.call_method1("dumps", (py_res,))?.extract()?;
-    Ok(json_str)
 }

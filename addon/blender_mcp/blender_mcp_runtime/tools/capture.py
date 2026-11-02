@@ -1,12 +1,13 @@
-// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Migrated handler for ``blender_capture``.
 
-use crate::bridge::channel::ToolCallResponse;
-use crate::tools::helper::call_python_tool;
-use pyo3::prelude::*;
+Logic is unchanged from the Rust-embedded implementation, except that shared
+RNA helpers/catalogs are imported from the persistent runtime instead of being
+duplicated or recompiled per call.
+"""
 
-pub fn capture(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
-    let code = r#"
+
 import bpy
 import os
 import tempfile
@@ -90,7 +91,7 @@ def run_capture(args):
             with open(tmp_path, "rb") as f:
                 b64_data = base64.b64encode(f.read()).decode("utf-8")
 
-        return {
+        result = {
             "status": "ok",
             "base64": b64_data,
             "filepath": target_path,
@@ -99,6 +100,20 @@ def run_capture(args):
             "camera": scene.camera.name if scene.camera else None,
             "film_transparent": scene.render.film_transparent
         }
+        if b64_data:
+            # MCP multi-modal content: Rust maps this directly to image blocks.
+            result["content"] = [
+                {
+                    "type": "text",
+                    "text": (
+                        f"Blender capture rendered (view: {view}, "
+                        f"resolution: {scene.render.resolution_x}x{scene.render.resolution_y}, "
+                        f"camera: {result['camera']})"
+                    ),
+                },
+                {"type": "image", "data": b64_data, "mimeType": "image/png"},
+            ]
+        return result
     except Exception as ex:
         import traceback
         return {"status": "error", "message": f"Capture error: {ex}\n{traceback.format_exc()}"}
@@ -114,39 +129,9 @@ def run_capture(args):
                 os.remove(tmp_path)
             except OSError:
                 pass
-"#;
 
-    match call_python_tool(py, code, "run_capture", args) {
-        Ok(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if val.get("status").and_then(|s| s.as_str()) == Some("error") {
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Capture failed");
-                    ToolCallResponse::error(msg)
-                } else if let Some(b64) = val.get("base64").and_then(|b| b.as_str()) {
-                    if !b64.is_empty() {
-                        let caption = format!(
-                            "Blender capture rendered (view: {}, res: {:?})",
-                            val.get("view").and_then(|v| v.as_str()).unwrap_or("view"),
-                            val.get("resolution")
-                        );
-                        ToolCallResponse::image(
-                            b64.to_string(),
-                            "image/png".to_string(),
-                            Some(caption),
-                        )
-                    } else {
-                        ToolCallResponse::json(&val)
-                    }
-                } else {
-                    ToolCallResponse::json(&val)
-                }
-            } else {
-                ToolCallResponse::text(json_str)
-            }
-        }
-        Err(e) => ToolCallResponse::error(format!("Python error during capture: {}", e)),
-    }
-}
+# --- MCP registration -------------------------------------------------------
+from ..registry import register
+from . import schemas
+
+schemas.register_tool(register, "blender_capture", run_capture)

@@ -1,12 +1,13 @@
-// SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
-// SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Blender Authors & MCP Contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Migrated handler for ``blender_manage_material``.
 
-use crate::bridge::channel::ToolCallResponse;
-use crate::tools::helper::call_python_tool;
-use pyo3::prelude::*;
+Logic is unchanged from the Rust-embedded implementation, except that shared
+RNA helpers/catalogs are imported from the persistent runtime instead of being
+duplicated or recompiled per call.
+"""
 
-pub fn manage_material(py: Python<'_>, args: serde_json::Value) -> ToolCallResponse {
-    let code = r#"
+
 import bpy
 from blender_mcp_runtime import rna
 
@@ -227,24 +228,9 @@ def run_material(args):
         if warnings:
             res["warnings"] = warnings
         return res
-"#;
 
-    match call_python_tool(py, code, "run_material", args) {
-        Ok(json_str) => {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                if val.get("status").and_then(|s| s.as_str()) == Some("error") {
-                    let msg = val
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Material operation failed");
-                    ToolCallResponse::error(msg)
-                } else {
-                    ToolCallResponse::json(&val)
-                }
-            } else {
-                ToolCallResponse::text(json_str)
-            }
-        }
-        Err(e) => ToolCallResponse::error(format!("Python error during material operation: {}", e)),
-    }
-}
+# --- MCP registration -------------------------------------------------------
+from ..registry import register
+from . import schemas
+
+schemas.register_tool(register, "blender_manage_material", run_material)
