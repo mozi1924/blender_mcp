@@ -1,0 +1,18 @@
+schema_version = "1.0.0"
+
+id = "blender_mcp_rust"
+version = "0.2.0"
+name = "Blender MCP (Rust)"
+tagline = "High-performance Rust MCP server extension for LLM interaction"
+maintainer = "Blender MCP Community"
+type = "add-on"
+blender_version_min = "5.1.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+tags = ["Development"]
+
+[permissions]
+network = "Runs local Streamable HTTP / SSE MCP server for LLM interaction"
