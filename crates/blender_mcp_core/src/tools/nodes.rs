@@ -70,6 +70,40 @@ def set_socket_value(sock, val):
             if obj:
                 sock.default_value = obj
 
+def resolve_node_ref(nid, tree, id_to_node):
+    if not nid:
+        return None
+    if nid in id_to_node:
+        return id_to_node[nid]
+    if nid in tree.nodes:
+        return tree.nodes[nid]
+
+    norm = nid.lower().replace(" ", "").replace("_", "").replace("-", "")
+    for n in tree.nodes:
+        n_name = n.name.lower().replace(" ", "").replace("_", "").replace("-", "")
+        n_id = n.bl_idname.lower().replace(" ", "").replace("_", "").replace("-", "")
+        if n_name == norm or n_id == norm:
+            return n
+
+    # Semantic alias fallback for interface nodes in localized Blenders
+    if norm in ("groupinput", "input"):
+        for n in tree.nodes:
+            if n.bl_idname == "NodeGroupInput":
+                return n
+    elif norm in ("groupoutput", "output"):
+        for n in tree.nodes:
+            if n.bl_idname == "NodeGroupOutput":
+                return n
+    elif norm in ("materialoutput", "surfaceoutput"):
+        for n in tree.nodes:
+            if "output" in n.bl_idname.lower():
+                return n
+    elif norm in ("principledbsdf", "principled", "bsdf"):
+        for n in tree.nodes:
+            if n.bl_idname in ("ShaderNodeBsdfPrincipled", "ShaderNodePrincipled"):
+                return n
+    return None
+
 def compute_dag_layout(nodes, links):
     adj = {n.get("id", ""): [] for n in nodes}
     in_degree = {n.get("id", ""): 0 for n in nodes}
@@ -306,8 +340,8 @@ def run_manage_nodes(args):
             if node_id and node_id in tree.nodes:
                 node = tree.nodes[node_id]
             elif bl_type:
-                # If output node already exists, reuse it
-                if "Output" in bl_type:
+                # If output or interface node already exists, reuse it
+                if "Output" in bl_type or bl_type in ("NodeGroupInput", "NodeGroupOutput", "ShaderNodeOutputMaterial"):
                     for n in tree.nodes:
                         if n.bl_idname == bl_type:
                             node = n
@@ -358,8 +392,8 @@ def run_manage_nodes(args):
             from_nid, from_sname = from_str.split(".", 1)
             to_nid, to_sname = to_str.split(".", 1)
 
-            from_node = id_to_node.get(from_nid) or tree.nodes.get(from_nid)
-            to_node = id_to_node.get(to_nid) or tree.nodes.get(to_nid)
+            from_node = resolve_node_ref(from_nid, tree, id_to_node)
+            to_node = resolve_node_ref(to_nid, tree, id_to_node)
 
             if not from_node or not to_node:
                 continue

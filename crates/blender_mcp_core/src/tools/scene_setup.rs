@@ -84,12 +84,22 @@ def run_setup(args):
     # 3. Render engine
     if "render_engine" in args:
         engine = args["render_engine"].upper()
+        prop = bpy.types.RenderSettings.bl_rna.properties.get("engine")
+        valid_engines = {item.identifier for item in prop.enum_items} if prop else set()
+
         if engine in ("EEVEE", "BLENDER_EEVEE", "EEVEE_NEXT", "BLENDER_EEVEE_NEXT"):
-            scene.render.engine = 'BLENDER_EEVEE_NEXT' if hasattr(bpy.types, "RenderSettings") else 'BLENDER_EEVEE'
+            if "BLENDER_EEVEE" in valid_engines:
+                scene.render.engine = "BLENDER_EEVEE"
+            elif "BLENDER_EEVEE_NEXT" in valid_engines:
+                scene.render.engine = "BLENDER_EEVEE_NEXT"
+            else:
+                scene.render.engine = "BLENDER_EEVEE"
         elif engine in ("CYCLES",):
-            scene.render.engine = 'CYCLES'
+            scene.render.engine = "CYCLES"
         elif engine in ("WORKBENCH", "BLENDER_WORKBENCH"):
-            scene.render.engine = 'BLENDER_WORKBENCH'
+            scene.render.engine = "BLENDER_WORKBENCH"
+        elif engine in valid_engines:
+            scene.render.engine = engine
         changes.append(f"render_engine={scene.render.engine}")
 
     # 4. Resolution

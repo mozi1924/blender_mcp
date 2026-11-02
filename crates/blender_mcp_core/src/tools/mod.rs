@@ -302,8 +302,8 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
                     },
                     "render_engine": {
                         "type": "string",
-                        "enum": ["BLENDER_EEVEE_NEXT", "CYCLES", "BLENDER_WORKBENCH"],
-                        "description": "Render engine: BLENDER_EEVEE_NEXT (Blender 5.x real-time) or CYCLES (path tracing)."
+                        "enum": ["BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "CYCLES", "BLENDER_WORKBENCH"],
+                        "description": "Render engine: BLENDER_EEVEE (real-time EEVEE / EEVEE Next), CYCLES (path tracing), or BLENDER_WORKBENCH."
                     },
                     "resolution": {
                         "type": "array",

@@ -253,11 +253,13 @@ def run_tests():
     setup_res = run_rpc_with_main_loop(lambda: tool_call("blender_setup_scene", {
         "camera": {"location": [10.0, -10.0, 8.0], "look_at": "RustCube", "focal_length": 50.0},
         "light": {"name": "SunLight", "type": "SUN", "energy": 5.0},
+        "render_engine": "BLENDER_EEVEE_NEXT",
         "resolution": [640, 480]
     }))
     assert not setup_res["result"]["isError"], f"Setup scene failed: {setup_res}"
     assert bpy.context.scene.render.resolution_x == 640
-    print("   [OK] Configured camera look_at, SunLight, and 640x480 resolution")
+    assert bpy.context.scene.render.engine in ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT")
+    print(f"   [OK] Configured camera look_at, SunLight, {bpy.context.scene.render.engine}, and 640x480 resolution")
 
     # Test 9: blender_capture
     print("==> Test 9: blender_capture (render to Base64 image)")
