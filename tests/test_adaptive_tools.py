@@ -703,15 +703,45 @@ def main():
         assert "Bone1" in batch_pose_res["applied_bones"]
         print("[OK] blender_set: pose_bone and batch pose setting verified")
 
-        # 22. blender_describe: addons and render_devices
+        # 22. blender_describe: addons, render_devices, and dynamic io_formats
         addons_res = payload(tool_call("blender_describe", {"target": "addons"}))
         assert addons_res["status"] == "ok"
         assert "addons" in addons_res and addons_res["count"] > 0
 
         dev_res = payload(tool_call("blender_describe", {"target": "render_devices"}))
         assert dev_res["status"] == "ok"
-        assert "devices" in dev_res
+        assert "gpu_platform" in dev_res and "cycles" in dev_res
         print("[OK] blender_describe: addons and render_devices verified")
+
+        io_res = payload(tool_call("blender_describe", {"target": "io_formats"}))
+        assert io_res["status"] == "ok"
+        assert "supported_import_formats" in io_res
+        assert "supported_export_formats" in io_res
+        for expected_fmt in ("obj", "ply", "stl", "usd", "abc"):
+            assert expected_fmt in io_res["supported_import_formats"], f"Expected {expected_fmt} in import formats"
+            assert expected_fmt in io_res["supported_export_formats"], f"Expected {expected_fmt} in export formats"
+
+        io_query_res = payload(tool_call("blender_describe", {"target": "io_formats", "query": "obj"}))
+        assert io_query_res["status"] == "ok"
+        assert "obj" in io_query_res["importers"]
+        print("[OK] blender_describe: dynamic RNA io_formats discovery and query verified")
+
+        # 23. blender_manage_file: dynamic format export without hardcoding
+        tmp_obj = os.path.join(tempfile.gettempdir(), "test_export.obj")
+        exp_res = payload(tool_call("blender_manage_file", {
+            "action": "export_format",
+            "filepath": tmp_obj,
+            "format": "obj",
+        }))
+        assert exp_res["status"] == "ok"
+        assert exp_res["format"] == "obj"
+        assert os.path.exists(tmp_obj)
+        if os.path.exists(tmp_obj):
+            os.remove(tmp_obj)
+        mtl_file = tmp_obj.replace(".obj", ".mtl")
+        if os.path.exists(mtl_file):
+            os.remove(mtl_file)
+        print("[OK] blender_manage_file: dynamic format export verified")
     finally:
         blender_mcp_core.stop_server()
         time.sleep(0.1)

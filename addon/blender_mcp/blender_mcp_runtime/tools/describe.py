@@ -36,6 +36,7 @@ _TARGETS = (
     "primitives",
     "render_engines",
     "render_devices",
+    "io_formats",
     "id_types",
     "tool_schemas",
     "addons",
@@ -266,26 +267,10 @@ def describe(args):
         return catalogs.render_engines()
 
     if target == "render_devices":
-        cycles_addon = bpy.context.preferences.addons.get("cycles")
-        devices_info = []
-        compute_type = "NONE"
-        if cycles_addon:
-            cprefs = cycles_addon.preferences
-            compute_type = cprefs.compute_device_type
-            cprefs.get_devices()
-            for d in cprefs.devices:
-                devices_info.append({
-                    "name": d.name,
-                    "type": d.type,
-                    "use": bool(d.use),
-                    "id": getattr(d, "id", None),
-                })
-        return {
-            "status": "ok",
-            "target": "render_devices",
-            "compute_device_type": compute_type,
-            "devices": devices_info,
-        }
+        return catalogs.render_devices()
+
+    if target == "io_formats":
+        return catalogs.io_formats(query=args.get("query"))
 
     if target in ("addons", "extensions"):
         import addon_utils

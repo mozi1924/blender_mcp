@@ -14,7 +14,7 @@ import bpy
 import math
 import mathutils
 
-from .. import registry, rna
+from .. import catalogs, registry, rna
 
 _ORIGIN_MAP = {
     "GEOMETRY": "ORIGIN_GEOMETRY",
@@ -249,25 +249,7 @@ def run(args):
 
         # Auto-activate Cycles GPU compute devices if device='GPU'
         if getattr(node, "bl_rna", None) and node.bl_rna.identifier == "CyclesRenderSettings" and properties.get("device") == "GPU":
-            try:
-                cycles_addon = bpy.context.preferences.addons.get("cycles")
-                if cycles_addon:
-                    cprefs = cycles_addon.preferences
-                    import platform
-                    if platform.system() == "Darwin":
-                        cprefs.compute_device_type = "METAL"
-                    elif not cprefs.compute_device_type or cprefs.compute_device_type == "NONE":
-                        for dt in ("CUDA", "OPTIX", "HIP", "ONEAPI"):
-                            try:
-                                cprefs.compute_device_type = dt
-                                break
-                            except Exception:
-                                pass
-                    cprefs.get_devices()
-                    for d in cprefs.devices:
-                        d.use = True
-            except Exception:
-                pass
+            catalogs.activate_render_device()
 
         return {
             "status": "ok" if ok else "error",
@@ -316,25 +298,7 @@ def run(args):
 
     # Auto-activate Cycles GPU compute devices if device='GPU' is set
     if getattr(parent, "bl_rna", None) and parent.bl_rna.identifier == "CyclesRenderSettings" and identifier == "device" and value == "GPU":
-        try:
-            cycles_addon = bpy.context.preferences.addons.get("cycles")
-            if cycles_addon:
-                cprefs = cycles_addon.preferences
-                import platform
-                if platform.system() == "Darwin":
-                    cprefs.compute_device_type = "METAL"
-                elif not cprefs.compute_device_type or cprefs.compute_device_type == "NONE":
-                    for dt in ("CUDA", "OPTIX", "HIP", "ONEAPI"):
-                        try:
-                            cprefs.compute_device_type = dt
-                            break
-                        except Exception:
-                            pass
-                cprefs.get_devices()
-                for d in cprefs.devices:
-                    d.use = True
-        except Exception:
-            pass
+        catalogs.activate_render_device()
     return {
         "status": "ok" if ok else "error",
         "target": str(target),

@@ -16,39 +16,7 @@ import os
 from pathlib import Path
 import bpy
 
-from .. import registry, rna
-
-# Supported external 3D formats and their corresponding modern Blender 5.x operators
-_IMPORT_OPERATORS = {
-    "gltf": "import_scene.gltf",
-    "glb": "import_scene.gltf",
-    "fbx": "wm.fbx_import" if hasattr(bpy.ops.wm, "fbx_import") else "import_scene.fbx",
-    "obj": "wm.obj_import",
-    "usd": "wm.usd_import",
-    "usda": "wm.usd_import",
-    "usdc": "wm.usd_import",
-    "usdz": "wm.usd_import",
-    "abc": "wm.alembic_import",
-    "alembic": "wm.alembic_import",
-    "ply": "wm.ply_import",
-    "stl": "wm.stl_import",
-    "svg": "wm.grease_pencil_import_svg",
-}
-
-_EXPORT_OPERATORS = {
-    "gltf": "export_scene.gltf",
-    "glb": "export_scene.gltf",
-    "fbx": "wm.fbx_export" if hasattr(bpy.ops.wm, "fbx_export") else "export_scene.fbx",
-    "obj": "wm.obj_export",
-    "usd": "wm.usd_export",
-    "usda": "wm.usd_export",
-    "usdc": "wm.usd_export",
-    "usdz": "wm.usd_export",
-    "abc": "wm.alembic_export",
-    "alembic": "wm.alembic_export",
-    "ply": "wm.ply_export",
-    "stl": "wm.stl_export",
-}
+from .. import catalogs, registry, rna
 
 _ACTIONS = (
     "preview",
@@ -73,17 +41,37 @@ def _normalize_path(path_str: str) -> str:
     return bpy.path.abspath(expanded)
 
 
-def _detect_format(filepath: str, explicit_format: str | None = None) -> str:
+def _resolve_io_operator(format_str: str, is_import: bool) -> tuple[str, dict]:
+    """Dynamically resolve operator identifier for a given 3D format from catalogs."""
+    io = catalogs.io_formats()
+    table = io.get("importers" if is_import else "exporters", {})
+    key = str(format_str).lower().strip().lstrip(".")
+    if key in table:
+        entry = table[key]
+        return entry["operator"], entry
+    supported = sorted(table.keys())
+    raise ValueError(
+        f"No {'importer' if is_import else 'exporter'} registered for 3D format '{key}'. "
+        f"Supported {('import' if is_import else 'export')} formats in this session: {supported}"
+    )
+
+
+def _detect_format(filepath: str, explicit_format: str | None = None, is_import: bool = True) -> str:
+    """Detect file format dynamically from explicit format argument or filepath extension."""
+    io = catalogs.io_formats()
+    table = io.get("importers" if is_import else "exporters", {})
     if explicit_format:
         fmt = str(explicit_format).lower().strip().lstrip(".")
-        if fmt in _IMPORT_OPERATORS or fmt in _EXPORT_OPERATORS:
+        if fmt in table:
             return fmt
     ext = Path(filepath).suffix.lower().lstrip(".")
-    if ext in _IMPORT_OPERATORS or ext in _EXPORT_OPERATORS:
+    if ext in table:
         return ext
+    supported = sorted(table.keys())
     raise ValueError(
-        f"Unable to detect 3D format for file '{filepath}'. "
-        f"Please provide 'format' explicitly (e.g. gltf, fbx, obj, usd, abc, ply, stl, svg)."
+        f"Unable to match a registered 3D format for file '{filepath}'. "
+        f"Provided or detected format '{explicit_format or ext}' is not registered in this session. "
+        f"Supported formats: {supported}. Check available formats via blender_describe(target='io_formats')."
     )
 
 
@@ -335,10 +323,8 @@ def _import_format(args: dict) -> dict:
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"File not found: '{filepath}'")
 
-    fmt = _detect_format(filepath, args.get("format"))
-    op_path = _IMPORT_OPERATORS.get(fmt)
-    if not op_path:
-        raise ValueError(f"No importer registered for format '{fmt}'")
+    fmt = _detect_format(filepath, args.get("format"), is_import=True)
+    op_path, _entry = _resolve_io_operator(fmt, is_import=True)
 
     target_col_name = args.get("target_collection")
     target_col = None
@@ -396,10 +382,8 @@ def _export_format(args: dict) -> dict:
     if not filepath:
         raise ValueError("Argument 'filepath' is required for action 'export_format'")
 
-    fmt = _detect_format(filepath, args.get("format"))
-    op_path = _EXPORT_OPERATORS.get(fmt)
-    if not op_path:
-        raise ValueError(f"No exporter registered for format '{fmt}'")
+    fmt = _detect_format(filepath, args.get("format"), is_import=False)
+    op_path, _entry = _resolve_io_operator(fmt, is_import=False)
 
     parent_dir = os.path.dirname(filepath)
     if parent_dir and not os.path.exists(parent_dir):
@@ -550,8 +534,7 @@ registry.register(
             },
             "format": {
                 "type": "string",
-                "enum": ["gltf", "glb", "fbx", "obj", "usd", "usda", "usdc", "usdz", "abc", "ply", "stl", "svg"],
-                "description": "Explicit 3D file format (auto-detected from file extension if omitted).",
+                "description": "Explicit 3D file format (e.g. gltf, glb, fbx, obj, usd, abc, ply, stl, svg). Auto-detected from file extension if omitted. Query available session formats via blender_describe(target='io_formats').",
             },
             "options": {
                 "type": "object",
