@@ -66,6 +66,21 @@ fn get_tools(py: Python<'_>) -> PyResult<String> {
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }
 
+#[pyfunction]
+fn register_runtime(target: &Bound<'_, PyAny>) -> PyResult<()> {
+    if let Ok(name) = target.extract::<String>() {
+        tools::helper::set_runtime_module_name(name);
+        return Ok(());
+    }
+    if let Ok(name) = target.getattr("__name__").and_then(|v| v.extract::<String>()) {
+        tools::helper::set_runtime_module_name(name);
+        return Ok(());
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "register_runtime expected a module object or module name string",
+    ))
+}
+
 #[pymodule]
 fn blender_mcp_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(start_server, m)?)?;
@@ -73,5 +88,6 @@ fn blender_mcp_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_running, m)?)?;
     m.add_function(wrap_pyfunction!(poll_tick, m)?)?;
     m.add_function(wrap_pyfunction!(get_tools, m)?)?;
+    m.add_function(wrap_pyfunction!(register_runtime, m)?)?;
     Ok(())
 }

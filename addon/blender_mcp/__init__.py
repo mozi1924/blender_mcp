@@ -21,17 +21,44 @@ import os
 import bpy
 from bpy.props import StringProperty, IntProperty, BoolProperty, FloatProperty
 
-# Ensure the addon directory is on sys.path so blender_mcp_core.so can be imported
-_addon_dir = os.path.dirname(os.path.abspath(__file__))
-if _addon_dir not in sys.path:
-    sys.path.insert(0, _addon_dir)
+_CORE_AVAILABLE = False
+_IMPORT_ERROR = None
+
+# 1. Attempt relative package import (standard for Blender 4.2+ extensions and modern addons)
+try:
+    from . import blender_mcp_core
+    _CORE_AVAILABLE = True
+except ImportError:
+    # 2. Fallback to direct import (for standalone test environments or un-packaged usage)
+    try:
+        import blender_mcp_core
+        _CORE_AVAILABLE = True
+    except ImportError as ex:
+        _IMPORT_ERROR = str(ex)
 
 try:
-    import blender_mcp_core
-    _CORE_AVAILABLE = True
-except ImportError as ex:
-    _CORE_AVAILABLE = False
-    _IMPORT_ERROR = str(ex)
+    from . import blender_mcp_runtime
+except ImportError:
+    try:
+        import blender_mcp_runtime
+    except ImportError:
+        blender_mcp_runtime = None
+
+if _CORE_AVAILABLE:
+    if blender_mcp_runtime is not None and hasattr(blender_mcp_core, "register_runtime"):
+        blender_mcp_core.register_runtime(blender_mcp_runtime)
+
+    # When loaded as a Blender 4.2+ extension, Python's single-phase C-extension loader
+    # automatically registers the base name 'blender_mcp_core' in sys.modules in addition
+    # to the fully qualified package name (e.g. 'bl_ext.user_default.blender_mcp_rust.blender_mcp_core').
+    # Blender's extension validator flags any module in sys.modules not starting with 'bl_ext.'
+    # whose file is inside the extension folder as a policy violation.
+    # We clean up these redundant top-level aliases to keep sys.modules clean and policy-compliant.
+    if __package__ and __package__.startswith("bl_ext."):
+        sys.modules.pop("blender_mcp_core", None)
+        for k in list(sys.modules.keys()):
+            if k == "blender_mcp_runtime" or k.startswith("blender_mcp_runtime."):
+                sys.modules.pop(k, None)
 
 
 

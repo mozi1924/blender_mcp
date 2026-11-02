@@ -302,7 +302,7 @@ def run_inspect(args):
 
     # 4. Target: datablocks (discovered from bpy.data RNA)
     elif target == "datablocks":
-        from blender_mcp_runtime import catalogs
+        from .. import catalogs
         id_types = catalogs.id_types()["id_types"]
         result = {"status": "ok"}
         result.update({item["collection"]: item["count"] for item in id_types})

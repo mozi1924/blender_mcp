@@ -5,38 +5,63 @@ use crate::bridge::channel::{ToolCallResponse, ToolContent};
 use pyo3::prelude::*;
 use serde_json::Value;
 
+use once_cell::sync::Lazy;
+use std::sync::RwLock;
+
 pub const RUNTIME_MODULE: &str = "blender_mcp_runtime";
 
-/// Import the runtime, adding the extension's directory to ``sys.path`` as a
-/// fallback.  The add-on already does this, but this keeps direct\.so imports
-/// (tests, embedding) working too.
+static RUNTIME_MODULE_NAME: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
+
+pub fn set_runtime_module_name(name: String) {
+    if let Ok(mut lock) = RUNTIME_MODULE_NAME.write() {
+        *lock = Some(name);
+    }
+}
+
+/// Import the runtime module.
+///
+/// Supports namespaced Blender extensions (e.g. ``bl_ext.*.blender_mcp_runtime``)
+/// without modifying ``sys.path`` or triggering policy violations.
 pub fn import_runtime(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
-    match py.import(RUNTIME_MODULE) {
-        Ok(module) => Ok(module),
-        Err(first_err) => {
-            let mut added = false;
-            if let Ok(core) = py.import("blender_mcp_core") {
-                if let Ok(file) = core.getattr("__file__").and_then(|v| v.extract::<String>()) {
-                    if let Some(parent) = std::path::Path::new(&file).parent() {
-                        if let Ok(sys) = py.import("sys") {
-                            if let Ok(path) = sys.getattr("path") {
-                                let _ = path.call_method1(
-                                    "insert",
-                                    (0, parent.to_string_lossy().to_string()),
-                                );
-                                added = true;
+    // 1. If an explicit runtime module name has been registered, try that first.
+    if let Ok(lock) = RUNTIME_MODULE_NAME.read() {
+        if let Some(ref name) = *lock {
+            if let Ok(module) = py.import(name.as_str()) {
+                return Ok(module);
+            }
+        }
+    }
+
+    // 2. Discover dynamically from sys.modules (e.g. bl_ext.*.blender_mcp_runtime).
+    if let Ok(sys) = py.import("sys") {
+        if let Ok(modules) = sys.getattr("modules") {
+            if let Ok(dict) = modules.downcast::<pyo3::types::PyDict>() {
+                let mut candidate: Option<String> = None;
+                for (key, _) in dict.iter() {
+                    if let Ok(name) = key.extract::<String>() {
+                        if name == RUNTIME_MODULE || name.ends_with(&format!(".{RUNTIME_MODULE}")) {
+                            let is_blext = name.starts_with("bl_ext.");
+                            if is_blext || candidate.is_none() {
+                                candidate = Some(name);
+                                if is_blext {
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-            }
-            if added {
-                py.import(RUNTIME_MODULE).map_err(|_| first_err)
-            } else {
-                Err(first_err)
+                if let Some(name) = candidate {
+                    if let Ok(module) = py.import(name.as_str()) {
+                        set_runtime_module_name(name);
+                        return Ok(module);
+                    }
+                }
             }
         }
     }
+
+    // 3. Fallback to direct import (e.g. in standalone tests).
+    py.import(RUNTIME_MODULE)
 }
 
 /// Import the persistent Python runtime and dispatch a tool.

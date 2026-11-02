@@ -9,8 +9,8 @@ duplicated or recompiled per call.
 
 
 import bpy
-from blender_mcp_runtime import catalogs, rna
-from blender_mcp_runtime.rna import find_socket, set_socket_value
+from .. import catalogs, rna
+from ..rna import find_socket, set_socket_value
 
 # Tool-level tree names -> Blender node tree types (API vocabulary, not RNA data).
 _TREE_TYPES = {

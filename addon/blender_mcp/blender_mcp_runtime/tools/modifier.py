@@ -9,7 +9,7 @@ duplicated or recompiled per call.
 
 
 import bpy
-from blender_mcp_runtime import catalogs, rna
+from .. import catalogs, rna
 
 def run_modifier(args):
     action = args.get("action", "add").lower()
