@@ -27,7 +27,7 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "blender_inspect".to_string(),
-            description: "Unified inspection tool for Blender: inspect scene collections hierarchy, object details (transforms, dimensions, vertices, materials, modifiers), file save/library status, or datablock counts.".to_string(),
+            description: "Unified inspection tool for Blender: inspect scene metadata (active camera, render engine, frame range, FPS, resolution, AgX view transform, units, collection hierarchy), deep object details (transforms, mesh stats, camera optics/DOF, light parameters, curves/hair, grease pencil v3, armature bones, slotted actions/animation, full modifier stacks, material slots, custom properties), blend file libraries/status, or comprehensive datablock counts.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

@@ -109,13 +109,28 @@ def run_tests():
     insp_data = json.loads(insp_scene["result"]["content"][0]["text"])
     assert insp_data["status"] == "ok"
     assert "hierarchy" in insp_data
-    print("   [OK] blender_inspect (scene) passed")
+    assert "active_camera" in insp_data
+    assert "fps" in insp_data and insp_data["fps"] > 0
+    assert "units" in insp_data and "system" in insp_data["units"]
+    assert "view_transform" in insp_data
+    assert "resolution" in insp_data
+    print(f"   [OK] blender_inspect (scene): FPS={insp_data['fps']}, ViewTransform={insp_data['view_transform']}, Camera={insp_data['active_camera']}")
 
     insp_blocks = run_rpc_with_main_loop(lambda: tool_call("blender_inspect", {"target": "datablocks"}))
     assert not insp_blocks["result"]["isError"]
     blocks_data = json.loads(insp_blocks["result"]["content"][0]["text"])
     assert "meshes" in blocks_data
-    print("   [OK] blender_inspect (datablocks) passed")
+    assert "curves" in blocks_data
+    assert "grease_pencils" in blocks_data
+    assert "armatures" in blocks_data
+    print("   [OK] blender_inspect (datablocks): verified meshes, curves, grease_pencils, armatures counts")
+
+    insp_file = run_rpc_with_main_loop(lambda: tool_call("blender_inspect", {"target": "file"}))
+    assert not insp_file["result"]["isError"]
+    file_data = json.loads(insp_file["result"]["content"][0]["text"])
+    assert "version_string" in file_data
+    assert "build_hash" in file_data
+    print(f"   [OK] blender_inspect (file): version={file_data['version_string']}, hash={file_data['build_hash'][:10]}")
 
     # Test 4: blender_create_primitive
     print("==> Test 4: blender_create_primitive")
@@ -252,6 +267,40 @@ def run_tests():
     pbr_slot0 = insp_mat_data["material_slots"][0]["principled_pbr"]
     assert "Coat Weight" in pbr_slot0 and pbr_slot0["Coat Weight"] == 0.8
     print("   [OK] Inspected material slots on RustCube: verified PBR Coat Weight 0.8 and IOR 1.45")
+
+    # 7d. Deep object inspection via blender_inspect for Mesh, Camera, and Light
+    print("==> Test 7d: blender_inspect (deep object inspection)")
+    insp_cube = run_rpc_with_main_loop(lambda: tool_call("blender_inspect", {
+        "target": "object",
+        "name": "RustCube"
+    }))
+    assert not insp_cube["result"]["isError"]
+    cube_data = json.loads(insp_cube["result"]["content"][0]["text"])
+    assert cube_data["status"] == "ok"
+    assert "mesh_stats" in cube_data and cube_data["mesh_stats"]["vertices"] == 8
+    assert len(cube_data["materials"]) == 2
+    assert any(m["name"] == "FastBoolean" for m in cube_data["modifiers"])
+    print("   [OK] Deep inspected RustCube: verified mesh stats, 2 material slots, and FastBoolean modifier")
+
+    if bpy.data.objects.get("Camera"):
+        insp_cam = run_rpc_with_main_loop(lambda: tool_call("blender_inspect", {
+            "target": "object",
+            "name": "Camera"
+        }))
+        assert not insp_cam["result"]["isError"]
+        cam_data = json.loads(insp_cam["result"]["content"][0]["text"])
+        assert "camera_stats" in cam_data and cam_data["camera_stats"]["lens"] > 0
+        print(f"   [OK] Deep inspected Camera: lens={cam_data['camera_stats']['lens']}mm, type={cam_data['camera_stats']['camera_type']}")
+
+    if bpy.data.objects.get("Light"):
+        insp_light = run_rpc_with_main_loop(lambda: tool_call("blender_inspect", {
+            "target": "object",
+            "name": "Light"
+        }))
+        assert not insp_light["result"]["isError"]
+        light_data = json.loads(insp_light["result"]["content"][0]["text"])
+        assert "light_stats" in light_data and light_data["light_stats"]["energy"] > 0
+        print(f"   [OK] Deep inspected Light: energy={light_data['light_stats']['energy']}W, type={light_data['light_stats']['light_type']}")
 
     # Test 7.1: blender_manage_nodes (query_type & search)
     print("==> Test 7.1: blender_manage_nodes (query_type with RNA properties)")
