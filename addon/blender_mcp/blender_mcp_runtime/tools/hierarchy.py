@@ -501,13 +501,55 @@ def run_hierarchy(args):
 
         return res
 
+    # 9. Action: delete_object / remove_object
+    elif action in ("delete_object", "remove_object"):
+        obj_names = _normalize_list(
+            args.get("objects") or args.get("object") or args.get("children") or args.get("child")
+        )
+        if not obj_names:
+            return {"status": "error", "message": "Provide 'objects' (or 'object') to delete"}
+
+        delete_data = bool(args.get("delete_data", True))
+        if undo:
+            bpy.ops.ed.undo_push(message="MCP Delete Objects")
+
+        deleted = []
+        deleted_data = []
+        for name in obj_names:
+            obj = bpy.data.objects.get(name)
+            if not obj:
+                continue
+            data_block = obj.data if delete_data else None
+            obj_name = obj.name
+            bpy.data.objects.remove(obj, do_unlink=True)
+            deleted.append(obj_name)
+            if data_block and getattr(data_block, "users", 0) == 0:
+                try:
+                    for coll_name in ("meshes", "curves", "lights", "cameras", "armatures", "grease_pencils"):
+                        coll = getattr(bpy.data, coll_name, None)
+                        if coll and data_block.name in coll:
+                            dname = data_block.name
+                            coll.remove(data_block)
+                            deleted_data.append(f"{coll_name}:{dname}")
+                            break
+                except Exception:
+                    pass
+
+        bpy.context.view_layer.update()
+        return {
+            "status": "ok",
+            "action": "delete_object",
+            "deleted_objects": deleted,
+            "deleted_data": deleted_data,
+        }
+
     else:
         return {
             "status": "error",
             "message": (
                 f"Unknown action '{action}'. Valid actions: set_parent, clear_parent, "
                 "create_collection, move_to_collection, unlink_from_collection, "
-                "remove_collection, configure_collection, inspect"
+                "remove_collection, configure_collection, inspect, delete_object"
             ),
         }
 

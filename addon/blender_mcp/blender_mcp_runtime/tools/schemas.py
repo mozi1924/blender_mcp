@@ -16,16 +16,34 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                'enum': ['scene',
                                                                         'object',
                                                                         'file',
-                                                                        'datablocks'],
+                                                                        'datablocks',
+                                                                        'raycast'],
                                                                'default': 'scene',
                                                                'description': "What to inspect: 'scene' "
                                                                               '(collection hierarchy & '
                                                                               "active state), 'object' (deep "
                                                                               "object details), 'file' "
                                                                               '(filepath, saved status, '
-                                                                              'missing files), or '
+                                                                              "missing files, or preview external .blend), "
                                                                               "'datablocks' (counts of "
-                                                                              'meshes, materials, etc.).'},
+                                                                              "meshes, materials, etc.), or "
+                                                                              "'raycast' (spatial surface & ground detection)."},
+                                                    'filepath': {'type': 'string',
+                                                                 'description': "Optional external .blend filepath to preview when target is 'file'."},
+                                                    'origin': {'type': 'array',
+                                                               'items': {'type': 'number'},
+                                                               'minItems': 3,
+                                                               'maxItems': 3,
+                                                               'description': "Ray origin [x, y, z] when target is 'raycast'."},
+                                                    'direction': {'type': 'array',
+                                                                  'items': {'type': 'number'},
+                                                                  'minItems': 3,
+                                                                  'maxItems': 3,
+                                                                  'default': [0.0, 0.0, -1.0],
+                                                                  'description': "Ray direction vector [x, y, z] when target is 'raycast'."},
+                                                    'distance': {'type': 'number',
+                                                                 'default': 1000.0,
+                                                                 'description': "Maximum raycast distance when target is 'raycast'."},
                                                     'name': {'type': 'string',
                                                              'description': 'Object name to inspect. '
                                                                             'Required when target is '
@@ -376,8 +394,12 @@ TOOLS = {'blender_inspect': {'name': 'blender_inspect',
                                                                                 'unlink_from_collection',
                                                                                 'remove_collection',
                                                                                 'configure_collection',
-                                                                                'inspect'],
+                                                                                'inspect',
+                                                                                'delete_object'],
                                                                        'description': 'Hierarchy action to perform.'},
+                                                            'delete_data': {'type': 'boolean',
+                                                                            'default': True,
+                                                                            'description': 'When action is delete_object, also remove unshared mesh/curve/light data blocks.'},
                                                             'children': {'oneOf': [{'type': 'string'},
                                                                                    {'type': 'array',
                                                                                     'items': {'type': 'string'}}],

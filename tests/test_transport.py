@@ -129,7 +129,7 @@ def main():
         )
         assert status == 200, (status, body)
         tools = json.loads(body)["result"]["tools"]
-        assert len(tools) == 9, [tool["name"] for tool in tools]
+        assert len(tools) == 10, [tool["name"] for tool in tools]
         assert headers.get("Mcp-Session-Id") or headers.get("mcp-session-id")
         print(f"[OK] tools/list with session: {len(tools)} tools")
 

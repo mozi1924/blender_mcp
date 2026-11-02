@@ -35,8 +35,11 @@ _TARGETS = (
     "node",
     "primitives",
     "render_engines",
+    "render_devices",
     "id_types",
     "tool_schemas",
+    "addons",
+    "extensions",
     "refresh",
 )
 
@@ -261,6 +264,55 @@ def describe(args):
 
     if target == "render_engines":
         return catalogs.render_engines()
+
+    if target == "render_devices":
+        cycles_addon = bpy.context.preferences.addons.get("cycles")
+        devices_info = []
+        compute_type = "NONE"
+        if cycles_addon:
+            cprefs = cycles_addon.preferences
+            compute_type = cprefs.compute_device_type
+            cprefs.get_devices()
+            for d in cprefs.devices:
+                devices_info.append({
+                    "name": d.name,
+                    "type": d.type,
+                    "use": bool(d.use),
+                    "id": getattr(d, "id", None),
+                })
+        return {
+            "status": "ok",
+            "target": "render_devices",
+            "compute_device_type": compute_type,
+            "devices": devices_info,
+        }
+
+    if target in ("addons", "extensions"):
+        import addon_utils
+        query = str(args.get("query") or "").lower().strip()
+        modules = []
+        for mod in addon_utils.modules():
+            loaded, enabled = addon_utils.check(mod.__name__)
+            info = addon_utils.module_bl_info(mod)
+            name = info.get("name", mod.__name__)
+            desc = info.get("description", "")
+            if query and query not in mod.__name__.lower() and query not in name.lower() and query not in desc.lower():
+                continue
+            modules.append({
+                "module": mod.__name__,
+                "name": name,
+                "version": list(info.get("version", ())),
+                "category": info.get("category", ""),
+                "enabled": bool(enabled),
+                "loaded": bool(loaded),
+                "description": desc,
+            })
+        return {
+            "status": "ok",
+            "target": target,
+            "count": len(modules),
+            "addons": modules,
+        }
 
     if target == "id_types":
         return catalogs.id_types()

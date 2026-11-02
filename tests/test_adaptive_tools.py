@@ -13,7 +13,9 @@ Run with: blender -b --python tests/test_adaptive_tools.py
 """
 
 import json
+import os
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -114,6 +116,7 @@ def main():
             "blender_describe", "blender_inspect", "blender_run_operator",
             "blender_set", "blender_manage_modifier", "blender_manage_nodes",
             "blender_capture", "blender_execute_script", "blender_manage_hierarchy",
+            "blender_manage_file",
         }
         assert set(tools) == expected_tools, sorted(tools)
         run_op = tools["blender_run_operator"]["inputSchema"]["properties"]
@@ -631,6 +634,84 @@ def main():
         assert cap_scene["status"] == "ok"
         assert cap_scene["scene"] == "TestMultiScene"
         print("[OK] multi-scene and view layer support across inspect, manage_nodes, capture")
+
+        # 18. blender_manage_file: save_as copy, preview, and append
+        import tempfile
+        tmp_blend = os.path.join(tempfile.gettempdir(), "test_adaptive_file.blend")
+        save_res = payload(tool_call("blender_manage_file", {"action": "save_as", "filepath": tmp_blend, "copy": True}))
+        assert save_res["status"] == "ok"
+        assert os.path.exists(tmp_blend)
+
+        prev_res = payload(tool_call("blender_manage_file", {"action": "preview", "filepath": tmp_blend}))
+        assert prev_res["status"] == "ok"
+        assert "collections" in prev_res["datablocks"]
+
+        append_res = payload(tool_call("blender_manage_file", {"action": "append", "filepath": tmp_blend, "datablock_type": "collections", "names": ["Collection"]}))
+        assert append_res["status"] == "ok"
+        assert "collections" in append_res["loaded"]
+
+        pack_res = payload(tool_call("blender_manage_file", {"action": "pack_resources", "mode": "make_relative"}))
+        assert pack_res["status"] == "ok"
+        if os.path.exists(tmp_blend):
+            os.remove(tmp_blend)
+        print("[OK] blender_manage_file: save_as, preview, append, pack_resources verified")
+
+        # 19. blender_manage_hierarchy: delete_object
+        tool_call("blender_run_operator", {"primitive_type": "box", "name": "BoxToDelete"})
+        assert bpy.data.objects.get("BoxToDelete") is not None
+        del_res = payload(tool_call("blender_manage_hierarchy", {"action": "delete_object", "objects": ["BoxToDelete"], "delete_data": True}))
+        assert del_res["status"] == "ok"
+        assert "BoxToDelete" in del_res["deleted_objects"]
+        assert bpy.data.objects.get("BoxToDelete") is None
+        print("[OK] blender_manage_hierarchy: delete_object verified")
+
+        # 20. blender_inspect: world_bound_box and raycast
+        tool_call("blender_run_operator", {"primitive_type": "box", "name": "RaycastCube", "location": [0, 0, 0]})
+        insp_cube = payload(tool_call("blender_inspect", {"target": "object", "name": "RaycastCube"}))
+        assert "world_bound_box" in insp_cube
+        assert "min" in insp_cube["world_bound_box"] and "max" in insp_cube["world_bound_box"]
+
+        ray_res = payload(tool_call("blender_inspect", {"target": "raycast", "origin": [0, 0, 5], "direction": [0, 0, -1]}))
+        assert ray_res["status"] == "ok"
+        assert ray_res["hit"] is True
+        assert ray_res["hit_object"] is not None
+        print("[OK] blender_inspect: world_bound_box and raycast verified")
+
+        # 21. blender_set: armature pose bone and pose batch setting
+        arm_data = bpy.data.armatures.new("TestArmature")
+        arm_obj = bpy.data.objects.new("TestArmature", arm_data)
+        bpy.context.scene.collection.objects.link(arm_obj)
+        bpy.context.view_layer.objects.active = arm_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        eb = arm_data.edit_bones.new("Bone1")
+        eb.head = (0, 0, 0)
+        eb.tail = (0, 0, 1)
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+        pose_set_res = payload(tool_call("blender_set", {
+            "target": "pose_bone:TestArmature/Bone1",
+            "path": "rotation_deg",
+            "value": [45, 0, 0],
+        }))
+        assert pose_set_res["status"] == "ok"
+
+        batch_pose_res = payload(tool_call("blender_set", {
+            "target": "pose:TestArmature",
+            "properties": {"Bone1": {"rotation_deg": [15, 20, 0]}},
+        }))
+        assert batch_pose_res["status"] == "ok"
+        assert "Bone1" in batch_pose_res["applied_bones"]
+        print("[OK] blender_set: pose_bone and batch pose setting verified")
+
+        # 22. blender_describe: addons and render_devices
+        addons_res = payload(tool_call("blender_describe", {"target": "addons"}))
+        assert addons_res["status"] == "ok"
+        assert "addons" in addons_res and addons_res["count"] > 0
+
+        dev_res = payload(tool_call("blender_describe", {"target": "render_devices"}))
+        assert dev_res["status"] == "ok"
+        assert "devices" in dev_res
+        print("[OK] blender_describe: addons and render_devices verified")
     finally:
         blender_mcp_core.stop_server()
         time.sleep(0.1)

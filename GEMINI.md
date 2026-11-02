@@ -58,17 +58,18 @@
   - 主线程调度通道中必须严密防护 `catch_unwind` 与 GIL 同步；
   - 胶水层严禁滥用 `.unwrap()` / `.expect()` 导致宿主进程崩溃，统一通过 `Result` 冒泡转化为标准的 JSON-RPC 2.0 错误响应。
 
-### 规则 5：九大收敛工具矩阵与收敛边界 (The 9 Consolidated Tools)
-- 工作区工具层严格收敛为以下 9 个通用、自适应工具，**坚决杜绝工具膨胀与历史冗余工具回潮**：
-  1. `blender_describe`：自适应内省之眼。动态查询实时 operator、struct、property、modifier_types、node_types、render_engines、id_types 等 RNA 元数据。
-  2. `blender_inspect`：统一只读探测器。检查场景层级（`scene`）、物体拓扑（`object`）、工程文件（`file`）、数据块计数（`datablocks`）。
+### 规则 5：十大收敛工具矩阵与收敛边界 (The 10 Consolidated Tools)
+- 工作区工具层严格收敛为以下 10 个通用、自适应工具，**坚决杜绝工具膨胀与历史冗余工具回潮**：
+  1. `blender_describe`：自适应内省之眼。动态查询实时 operator、struct、property、modifier_types、node_types、render_engines、render_devices、id_types、addons/extensions 等 RNA 元数据。
+  2. `blender_inspect`：统一只读探测器。检查场景层级（`scene`）、物体深层拓扑与世界包围盒及骨骼姿态（`object`）、工程文件（`file`，支持预览外部 .blend）、数据块计数（`datablocks`）以及地表射线吸附测绘（`raycast`）。
   3. `blender_run_operator`：自适应算子执行器。执行任意 `bpy.ops` 操作符，具备动态 RNA 参数校验与强制转换；统一吸收语义图元创建与后处理变换（位置、旋转、缩放、材质命名、集合收敛）。
-  4. `blender_set`：泛型 RNA 属性写入器。通过通用路径解析器（`object:...`, `modifier:...`, `material:...`, `scene...`）递归定位并赋值，支持相对变换、目标朝向（`look_at`）与角度旋转。
+  4. `blender_set`：泛型 RNA 属性写入器。通过通用路径解析器（`object:...`, `modifier:...`, `material:...`, `pose_bone:ARMATURE/BONE`, `pose:ARMATURE`, `scene...`）递归定位并赋值，支持相对变换、目标朝向（`look_at`）、角度旋转与 GPU 算力自动激活。
   5. `blender_manage_modifier`：修改器生命周期管理。基于实时修改器 RNA 目录完成修改器的增加、配置、应用与移除。
   6. `blender_manage_nodes`：多类型节点树管理。统一管理 Shader、Geometry、Compositor、World 节点树，插槽与连线探测基于实时树类型校验。
-  7. `blender_manage_hierarchy`：场景与集合层级管理。负责物体父子级关系（含变换保持与骨骼挂载）、集合创建/嵌套/重命名、物体在集合间的移动/链接、视图层排除与可见性控制。
-  8. `blender_capture`：多模态视觉反馈。支持相机与视口抓取，返回 Base64 编码的无损 PNG 图像。
-  9. `blender_execute_script`：脚本沙箱执行。具备自动 Undo 恢复保护、执行耗时统计与标准流（stdout/stderr）重定向捕获。
+  7. `blender_manage_hierarchy`：场景与集合层级管理。负责物体父子级关系（含变换保持与骨骼挂载）、集合创建/嵌套/重命名、物体在集合间的移动/链接、视图层排除与可见性控制，以及物体安全删除（`delete_object`）。
+  8. `blender_manage_file`：外部文件与资产库管理。负责外部 `.blend` 库只读内省（`preview`）、资产追加（`append`）与直接链接（`link`）、主工程管理（`open`/`save`/`save_as`/`revert`/`new`）、外部 3D 格式原生导入导出（`import_format`/`export_format`：glTF, FBX, OBJ, USD, ABC, PLY, STL, SVG）与资源打包重链（`pack_resources`）。
+  9. `blender_capture`：多模态视觉反馈。支持相机与视口抓取，返回 Base64 编码的无损 PNG 图像。
+  10. `blender_execute_script`：脚本沙箱执行。具备自动 Undo 恢复保护、执行耗时统计与标准流（stdout/stderr）重定向捕获。
 - **已物理剔除的旧工具红线**：
   - 严禁重新引入已废弃的单功能工具：`blender_create_primitive`、`blender_transform_object`、`blender_manage_material`、`blender_setup_scene`、`blender_undo`。
 
@@ -152,7 +153,7 @@ blender_mcp/
             ├── catalogs.py    -> 基于 RNA 的节点/修改器/引擎实时可用项缓存
             ├── rna.py         -> 核心 RNA 内省引擎、指针路径解析与类型强转
             ├── registry.py    -> 工具统一注册机与 Schema 动态物化
-            └── tools/         -> 9 大通用工具实现
+            └── tools/         -> 10 大通用工具实现
                 ├── describe.py       -> blender_describe
                 ├── inspect.py        -> blender_inspect
                 ├── operator.py       -> blender_run_operator
@@ -160,6 +161,7 @@ blender_mcp/
                 ├── modifier.py       -> blender_manage_modifier
                 ├── nodes.py          -> blender_manage_nodes
                 ├── hierarchy.py      -> blender_manage_hierarchy
+                ├── file_ops.py       -> blender_manage_file
                 ├── capture.py        -> blender_capture
                 ├── script.py         -> blender_execute_script
                 └── schemas.py        -> 动态 Schema 定义与枚举实时注入

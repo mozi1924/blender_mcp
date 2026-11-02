@@ -153,8 +153,8 @@ def run(args):
         }
 
     if path in ("rotation", "rotation_deg"):
-        if not isinstance(root, bpy.types.Object):
-            raise ValueError("rotation path requires an object target")
+        if not isinstance(root, (bpy.types.Object, bpy.types.PoseBone)):
+            raise ValueError("rotation path requires an object or pose_bone target")
         value = args.get("value")
         if not isinstance(value, (list, tuple)) or len(value) != 3:
             raise ValueError("rotation expects a 3-value degree array")
@@ -218,8 +218,57 @@ def run(args):
         node = rna.resolve_path(root, path) if path else root
         if undo:
             bpy.ops.ed.undo_push(message="MCP Set Property")
+
+        # Special convenience: batch setting bones on a Pose
+        if isinstance(node, bpy.types.Pose):
+            applied_bones = {}
+            for bone_name, bone_props in properties.items():
+                pbone = node.bones.get(bone_name)
+                if pbone and isinstance(bone_props, dict):
+                    if "rotation_deg" in bone_props or "rotation" in bone_props:
+                        rot_deg = bone_props.get("rotation_deg") or bone_props.get("rotation")
+                        if isinstance(rot_deg, (list, tuple)) and len(rot_deg) == 3:
+                            radians = [math.radians(float(v)) for v in rot_deg]
+                            if pbone.rotation_mode == "QUATERNION":
+                                pbone.rotation_quaternion = mathutils.Euler(radians, "XYZ").to_quaternion()
+                            else:
+                                pbone.rotation_euler = radians
+                    bone_clean = {k: v for k, v in bone_props.items() if k not in ("rotation", "rotation_deg")}
+                    if bone_clean:
+                        rna.apply_properties(pbone, bone_clean)
+                    applied_bones[bone_name] = "applied"
+            return {
+                "status": "ok",
+                "target": str(target),
+                "path": path,
+                "applied_bones": applied_bones,
+            }
+
         result = rna.apply_properties(node, properties)
         ok = not result.get("errors") and not result.get("unknown")
+
+        # Auto-activate Cycles GPU compute devices if device='GPU'
+        if getattr(node, "bl_rna", None) and node.bl_rna.identifier == "CyclesRenderSettings" and properties.get("device") == "GPU":
+            try:
+                cycles_addon = bpy.context.preferences.addons.get("cycles")
+                if cycles_addon:
+                    cprefs = cycles_addon.preferences
+                    import platform
+                    if platform.system() == "Darwin":
+                        cprefs.compute_device_type = "METAL"
+                    elif not cprefs.compute_device_type or cprefs.compute_device_type == "NONE":
+                        for dt in ("CUDA", "OPTIX", "HIP", "ONEAPI"):
+                            try:
+                                cprefs.compute_device_type = dt
+                                break
+                            except Exception:
+                                pass
+                    cprefs.get_devices()
+                    for d in cprefs.devices:
+                        d.use = True
+            except Exception:
+                pass
+
         return {
             "status": "ok" if ok else "error",
             "target": str(target),
@@ -257,6 +306,35 @@ def run(args):
 
     result = rna.apply_properties(parent, {identifier: value})
     ok = not result.get("errors") and not result.get("unknown")
+
+    # Auto-reload image if filepath was modified
+    if isinstance(parent, bpy.types.Image) and identifier == "filepath":
+        try:
+            parent.reload()
+        except Exception:
+            pass
+
+    # Auto-activate Cycles GPU compute devices if device='GPU' is set
+    if getattr(parent, "bl_rna", None) and parent.bl_rna.identifier == "CyclesRenderSettings" and identifier == "device" and value == "GPU":
+        try:
+            cycles_addon = bpy.context.preferences.addons.get("cycles")
+            if cycles_addon:
+                cprefs = cycles_addon.preferences
+                import platform
+                if platform.system() == "Darwin":
+                    cprefs.compute_device_type = "METAL"
+                elif not cprefs.compute_device_type or cprefs.compute_device_type == "NONE":
+                    for dt in ("CUDA", "OPTIX", "HIP", "ONEAPI"):
+                        try:
+                            cprefs.compute_device_type = dt
+                            break
+                        except Exception:
+                            pass
+                cprefs.get_devices()
+                for d in cprefs.devices:
+                    d.use = True
+        except Exception:
+            pass
     return {
         "status": "ok" if ok else "error",
         "target": str(target),

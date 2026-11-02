@@ -1072,6 +1072,28 @@ def resolve_target(target, create=False):
             return node
         if nk in ("nodetree", "nodegroup"):
             return resolve_id("NodeTree", name)
+        if nk in ("pose_bone", "posebone", "bone"):
+            obj_name, _, bone_name = name.partition("/")
+            if not bone_name:
+                raise ValueError("pose_bone target must be 'ArmatureObject/BoneName'")
+            obj = resolve_id("Object", obj_name)
+            if not getattr(obj, "pose", None):
+                raise ValueError(f"Object '{obj_name}' is not an armature or has no pose data")
+            pbone = obj.pose.bones.get(bone_name)
+            if pbone is None:
+                raise KeyError(f"Pose bone '{bone_name}' not found on '{obj_name}'")
+            return pbone
+        if nk in ("pose",):
+            obj_name, _, bone_name = name.partition("/")
+            obj = resolve_id("Object", obj_name)
+            if not getattr(obj, "pose", None):
+                raise ValueError(f"Object '{obj_name}' is not an armature or has no pose data")
+            if bone_name:
+                pbone = obj.pose.bones.get(bone_name)
+                if pbone is None:
+                    raise KeyError(f"Pose bone '{bone_name}' not found on '{obj_name}'")
+                return pbone
+            return obj.pose
 
         for fixed_type, collection_name in id_collections().items():
             if nk in (

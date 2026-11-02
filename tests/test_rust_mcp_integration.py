@@ -113,6 +113,7 @@ def run_tests():
         "blender_describe", "blender_inspect", "blender_run_operator",
         "blender_set", "blender_manage_modifier", "blender_manage_nodes",
         "blender_capture", "blender_execute_script", "blender_manage_hierarchy",
+        "blender_manage_file",
     ]
     for exp in expected_tools:
         assert exp in tool_names, f"Expected tool {exp} missing!"

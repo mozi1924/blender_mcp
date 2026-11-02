@@ -10,6 +10,7 @@ duplicated or recompiled per call.
 
 import bpy
 import math
+import mathutils
 
 def run_inspect(args):
     target = args.get("target", "scene").lower().strip()
@@ -118,7 +119,6 @@ def run_inspect(args):
         if obj.rotation_mode == 'QUATERNION':
             rot_deg = [round(math.degrees(a), 2) for a in obj.rotation_quaternion.to_euler()]
         elif obj.rotation_mode == 'AXIS_ANGLE':
-            import mathutils
             cur_q = mathutils.Quaternion(obj.rotation_axis_angle[1:], obj.rotation_axis_angle[0])
             rot_deg = [round(math.degrees(a), 2) for a in cur_q.to_euler()]
         else:
@@ -163,6 +163,20 @@ def run_inspect(args):
 
         constraints = [{"name": c.name, "type": c.type, "influence": round(c.influence, 3)} for c in obj.constraints]
 
+        # Calculate world-space bounding box
+        bbox_world = [obj.matrix_world @ mathutils.Vector(corner) for corner in obj.bound_box]
+        min_x = min(v.x for v in bbox_world)
+        max_x = max(v.x for v in bbox_world)
+        min_y = min(v.y for v in bbox_world)
+        max_y = max(v.y for v in bbox_world)
+        min_z = min(v.z for v in bbox_world)
+        max_z = max(v.z for v in bbox_world)
+        world_bbox = {
+            "min": [round(min_x, 4), round(min_y, 4), round(min_z, 4)],
+            "max": [round(max_x, 4), round(max_y, 4), round(max_z, 4)],
+            "center": [round((min_x + max_x) / 2.0, 4), round((min_y + max_y) / 2.0, 4), round((min_z + max_z) / 2.0, 4)],
+        }
+
         info = {
             "status": "ok",
             "name": obj.name,
@@ -172,6 +186,7 @@ def run_inspect(args):
             "rotation_euler_deg": rot_deg,
             "scale": [round(v, 4) for v in obj.scale],
             "dimensions": [round(v, 4) for v in obj.dimensions],
+            "world_bound_box": world_bbox,
             "materials": materials,
             "modifiers": modifiers,
             "constraints": constraints,
@@ -250,9 +265,34 @@ def run_inspect(args):
             }
         elif obj.type == 'ARMATURE' and obj.data:
             arm = obj.data
+            pose_summary = []
+            key_controllers = []
+            key_words = ("root", "torso", "body", "head", "arm", "leg", "hand", "foot", "hip", "ik", "fk", "spine")
+            if obj.pose:
+                for b in obj.pose.bones:
+                    b_low = b.name.lower()
+                    if any(k in b_low for k in key_words):
+                        key_controllers.append(b.name)
+                    b_info = {
+                        "name": b.name,
+                        "rotation_mode": b.rotation_mode,
+                        "location": [round(v, 4) for v in b.location],
+                    }
+                    if b.rotation_mode == "QUATERNION":
+                        b_info["rotation_deg"] = [round(math.degrees(a), 2) for a in b.rotation_quaternion.to_euler()]
+                    else:
+                        b_info["rotation_deg"] = [round(math.degrees(a), 2) for a in b.rotation_euler]
+                    custom_props = {k: b[k] for k in b.keys() if not k.startswith("_")}
+                    if custom_props:
+                        b_info["custom_properties"] = custom_props
+                    if len(pose_summary) < 40:
+                        pose_summary.append(b_info)
+
             info["armature_stats"] = {
                 "bones_count": len(arm.bones),
-                "bones": [b.name for b in arm.bones[:30]]
+                "pose_bones_count": len(obj.pose.bones) if obj.pose else 0,
+                "key_controllers": key_controllers[:50],
+                "sample_pose_bones": pose_summary,
             }
         elif obj.type == 'EMPTY':
             info["empty_stats"] = {
@@ -294,6 +334,10 @@ def run_inspect(args):
 
     # 3. Target: file
     elif target == "file":
+        if args.get("filepath"):
+            from . import file_ops
+            return file_ops._preview_blend(args)
+
         missing_files = []
         for img in bpy.data.images:
             if img.source == 'FILE' and img.filepath:
@@ -329,8 +373,34 @@ def run_inspect(args):
         result["total_ids"] = len(bpy.data.all_ids)
         result["id_types"] = id_types
         return result
+
+    # 5. Target: raycast (ground/surface detection and scene spatial query)
+    elif target == "raycast":
+        origin = args.get("origin")
+        if not origin or len(origin) != 3:
+            return {"status": "error", "message": "Argument 'origin' [x, y, z] is required for target 'raycast'"}
+        direction = args.get("direction") or [0.0, 0.0, -1.0]
+        distance = float(args.get("distance", 1000.0))
+        depsgraph = bpy.context.view_layer.depsgraph
+        hit, loc, normal, face_idx, hit_obj, matrix = bpy.context.scene.ray_cast(
+            depsgraph,
+            mathutils.Vector(origin),
+            mathutils.Vector(direction),
+            distance=distance,
+        )
+        return {
+            "status": "ok",
+            "target": "raycast",
+            "hit": hit,
+            "hit_location": [round(v, 4) for v in loc] if hit else None,
+            "hit_normal": [round(v, 4) for v in normal] if hit else None,
+            "hit_object": hit_obj.name if hit_obj else None,
+            "face_index": face_idx if hit else None,
+            "distance": round((loc - mathutils.Vector(origin)).length, 4) if hit else None,
+        }
+
     else:
-        return {"status": "error", "message": f"Unknown target '{target}'. Allowed: scene, object, file, datablocks"}
+        return {"status": "error", "message": f"Unknown target '{target}'. Allowed: scene, object, file, datablocks, raycast"}
 
 # --- MCP registration -------------------------------------------------------
 from ..registry import register
