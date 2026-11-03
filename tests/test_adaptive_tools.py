@@ -330,7 +330,6 @@ def main():
                 {
                     "target": "material:SetMat",
                     "create": True,
-                    "properties": {"use_nodes": True},
                 },
             )
         )

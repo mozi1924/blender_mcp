@@ -16,26 +16,41 @@ import mathutils
 
 from .. import catalogs, registry, rna
 
-_ORIGIN_MAP = {
-    "GEOMETRY": "ORIGIN_GEOMETRY",
-    "ORIGIN_GEOMETRY": "ORIGIN_GEOMETRY",
-    "GEOMETRY_ORIGIN": "ORIGIN_GEOMETRY",
-    "CURSOR": "ORIGIN_CURSOR",
-    "ORIGIN_CURSOR": "ORIGIN_CURSOR",
-    "CENTER_OF_MASS": "ORIGIN_CENTER_OF_MASS",
-    "ORIGIN_CENTER_OF_MASS": "ORIGIN_CENTER_OF_MASS",
-    "CENTER_OF_VOLUME": "ORIGIN_CENTER_OF_VOLUME",
-    "ORIGIN_CENTER_OF_VOLUME": "ORIGIN_CENTER_OF_VOLUME",
-}
+def _resolve_origin_type(origin_type: str) -> str:
+    raw = str(origin_type or "").upper().strip()
+    if raw == "BOTTOM":
+        return "BOTTOM"
+
+    norm_in = rna.norm(raw)
+    op_rna = getattr(bpy.ops.object.origin_set, "get_rna_type", None)
+    if op_rna:
+        prop = op_rna().properties.get("type")
+        if prop and hasattr(prop, "enum_items"):
+            # 1. Exact identifier or display name match
+            for it in prop.enum_items:
+                if norm_in in (rna.norm(it.identifier), rna.norm(it.name)):
+                    return it.identifier
+            # 2. Fuzzy prefix/suffix match (e.g. 'GEOMETRY' -> 'ORIGIN_GEOMETRY', 'CURSOR' -> 'ORIGIN_CURSOR')
+            for it in prop.enum_items:
+                norm_id = rna.norm(it.identifier)
+                if norm_id.endswith(norm_in) or norm_id.startswith(norm_in):
+                    return it.identifier
+
+    valid_options = ["BOTTOM"]
+    if op_rna:
+        prop = op_rna().properties.get("type")
+        if prop and hasattr(prop, "enum_items"):
+            valid_options.extend(it.identifier for it in prop.enum_items)
+    raise ValueError(f"Unknown origin_to '{origin_type}'. Valid: {sorted(valid_options)}")
 
 
 def _set_origin(obj, origin_type):
-    origin_type = str(origin_type).upper().strip()
+    target = _resolve_origin_type(origin_type)
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
-    if origin_type == "BOTTOM":
+    if target == "BOTTOM":
         bbox_world = [obj.matrix_world @ mathutils.Vector(corner) for corner in obj.bound_box]
         min_z = min(value.z for value in bbox_world)
         center_x = sum(value.x for value in bbox_world) / 8.0
@@ -48,12 +63,8 @@ def _set_origin(obj, origin_type):
             bpy.context.scene.cursor.location = old_cursor
         return "BOTTOM"
 
-    target = _ORIGIN_MAP.get(origin_type)
-    if target is None:
-        valid = sorted(set(_ORIGIN_MAP.values()) | {"BOTTOM"})
-        raise ValueError(f"Unknown origin_to '{origin_type}'. Valid: {valid}")
     bpy.ops.object.origin_set(type=target, center="BOUNDS" if target == "ORIGIN_GEOMETRY" else "MEDIAN")
-    return origin_type
+    return target
 
 
 def _look_at(obj, value):
@@ -150,6 +161,20 @@ def run(args):
             "status": "ok",
             "target": str(target),
             "origin_to": args["origin_to"],
+        }
+
+    if (
+        bool(args.get("create", False))
+        and not path
+        and "properties" not in args
+        and "value" not in args
+        and mode != "append"
+    ):
+        return {
+            "status": "ok",
+            "target": str(target),
+            "created": True,
+            "resolved": getattr(root, "name", type(root).__name__),
         }
 
     if path in ("rotation", "rotation_deg"):
@@ -319,7 +344,7 @@ registry.register(
         "target='object:RustCube', path='rotation_euler', value=[90,0,0], unit='degrees'; "
         "target='object:RustCube', path='location', value=[1,0,0], mode='relative'; "
         "target='object:RustCube', path='data.materials', value='MetallicBlue', mode='append'; "
-        "target='material:MetallicBlue', create=true, properties={'use_nodes': True}; "
+        "target='material:MetallicBlue', create=true; "
         "target='material:MetallicBlue', "
         "path='node_tree.nodes[Principled BSDF].inputs[Base Color].default_value', value='#FF5500'; "
         "target='scene.render', properties={'engine':'CYCLES','resolution_x':1920}; "

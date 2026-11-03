@@ -261,7 +261,6 @@ def run_tests():
     create_mat = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
         "target": "material:MetallicBlue",
         "create": True,
-        "properties": {"use_nodes": True}
     }))
     assert not create_mat["result"]["isError"], f"Material create failed: {create_mat}"
     mat = bpy.data.materials["MetallicBlue"]
@@ -296,7 +295,6 @@ def run_tests():
     create_glass = run_rpc_with_main_loop(lambda: tool_call("blender_set", {
         "target": "material:ClearGlass",
         "create": True,
-        "properties": {"use_nodes": True}
     }))
     assert not create_glass["result"]["isError"], f"Glass create failed: {create_glass}"
     assign_glass = run_rpc_with_main_loop(lambda: tool_call("blender_set", {

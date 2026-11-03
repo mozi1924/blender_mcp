@@ -12,22 +12,10 @@ import bpy
 from .. import catalogs, rna
 from ..rna import find_socket, set_socket_value
 
-# Tool-level tree names -> Blender node tree types (API vocabulary, not RNA data).
-_TREE_TYPES = {
-    "MATERIAL": "ShaderNodeTree",
-    "SHADER": "ShaderNodeTree",
-    "WORLD": "ShaderNodeTree",
-    "LINESTYLE": "ShaderNodeTree",
-    "LIGHT": "ShaderNodeTree",
-    "GEOMETRY": "GeometryNodeTree",
-    "COMPOSITING": "CompositorNodeTree",
-    "TEXTURE": "TextureNodeTree",
-}
-
 def tree_type_id(tree_type):
     if not tree_type:
         return None
-    return _TREE_TYPES.get(str(tree_type).upper(), tree_type)
+    return catalogs.normalize_tree_type(tree_type)
 
 def search_nodes(query, tree_type=None, limit=15):
     # Authoritative, cached validity probing lives in the runtime catalog.
@@ -136,7 +124,6 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             else:
                 mat_name = material_name or f"{obj.name}_Material"
                 mat = bpy.data.materials.new(name=mat_name)
-                mat.use_nodes = True
                 if not obj.data.materials:
                     obj.data.materials.append(mat)
                 else:
@@ -145,8 +132,7 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             if getattr(obj.data, "node_tree", None) is None:
                 if not create:
                     return None, f"Light '{obj.name}' has no node tree (pass ensure=true to create one)"
-                if hasattr(obj.data, "use_nodes"):
-                    obj.data.use_nodes = True
+                obj.data.node_tree = bpy.data.node_groups.new(obj.data.name, type='ShaderNodeTree')
             return obj.data.node_tree, f"Light Shader Tree on '{obj.name}'"
         elif target_name and target_name in bpy.data.materials:
             mat = bpy.data.materials[target_name]
@@ -159,12 +145,11 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             )
         else:
             mat = bpy.data.materials.new(name=material_name or target_name or "NewMaterial")
-            mat.use_nodes = True
 
         if getattr(mat, "node_tree", None) is None:
             if not create:
                 return None, f"Material '{mat.name}' has no node tree (pass ensure=true to create one)"
-            mat.use_nodes = True
+            mat.node_tree = bpy.data.node_groups.new(mat.name, type='ShaderNodeTree')
         return mat.node_tree, f"Material '{mat.name}'"
 
     elif tree_type in ("LIGHT", "LIGHT_SHADER"):
@@ -184,8 +169,7 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
         if getattr(light_data, "node_tree", None) is None:
             if not create:
                 return None, f"Light '{light_data.name}' has no node tree (pass ensure=true to create one)"
-            if hasattr(light_data, "use_nodes"):
-                light_data.use_nodes = True
+            light_data.node_tree = bpy.data.node_groups.new(light_data.name, type='ShaderNodeTree')
         return light_data.node_tree, f"Light '{light_data.name}' Shader Tree"
 
     elif tree_type == "GEOMETRY":
@@ -246,8 +230,6 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
             target_scene = bpy.context.scene
 
         scene = target_scene
-        if create and hasattr(scene, "use_nodes"):
-            scene.use_nodes = True
 
         if not hasattr(scene, "compositing_node_group") or scene.compositing_node_group is None:
             if not create:
@@ -299,7 +281,7 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
         if getattr(world, "node_tree", None) is None:
             if not create:
                 return None, f"World '{world.name}' has no node tree (pass ensure=true to create one)"
-            world.use_nodes = True
+            world.node_tree = bpy.data.node_groups.new(world.name, type='ShaderNodeTree')
         return world.node_tree, f"World Shader Tree '{world.name}'"
 
     elif tree_type == "LINESTYLE":
@@ -316,7 +298,8 @@ def get_or_create_tree(tree_type, target_name, material_name=None, modifier_name
         if getattr(ls, "node_tree", None) is None:
             if not create:
                 return None, f"LineStyle '{ls.name}' has no node tree (pass ensure=true to create one)"
-            ls.use_nodes = True
+            if hasattr(ls, "use_nodes"):
+                ls.use_nodes = True
         return ls.node_tree, f"LineStyle Shader Tree '{ls.name}'"
 
     return None, f"Unknown tree_type '{tree_type}'. Allowed: MATERIAL, GEOMETRY, COMPOSITING, WORLD, LINESTYLE, LIGHT, NODEGROUP"

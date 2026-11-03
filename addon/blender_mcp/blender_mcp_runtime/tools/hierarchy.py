@@ -525,13 +525,10 @@ def run_hierarchy(args):
             deleted.append(obj_name)
             if data_block and getattr(data_block, "users", 0) == 0:
                 try:
-                    for coll_name in ("meshes", "curves", "lights", "cameras", "armatures", "grease_pencils"):
-                        coll = getattr(bpy.data, coll_name, None)
-                        if coll and data_block.name in coll:
-                            dname = data_block.name
-                            coll.remove(data_block)
-                            deleted_data.append(f"{coll_name}:{dname}")
-                            break
+                    dname = data_block.name
+                    dtype = getattr(getattr(data_block, "bl_rna", None), "identifier", "DataBlock")
+                    bpy.data.batch_remove([data_block])
+                    deleted_data.append(f"{dtype}:{dname}")
                 except Exception:
                     pass
 
